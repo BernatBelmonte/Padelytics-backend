@@ -1,5 +1,25 @@
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 
+# 1. Localizamos la ruta de este archivo (config.py)
+# 2. Subimos un nivel o buscamos el .env donde esté
+# Si el .env está en la raíz de 'backend', y config.py también:
+env_path = Path(__file__).parent / ".env"
+
+# Cargamos el archivo .env explícitamente
+load_dotenv(dotenv_path=env_path)
+
+# Ahora os.getenv ya podrá leer los valores
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+# Debug opcional (bórralo después de comprobar)
+if not SUPABASE_URL:
+    print("⚠️ Error: No se ha podido cargar SUPABASE_URL desde el .env")
+else:
+    print(f"✅ Configuración cargada para: {SUPABASE_URL}")
 # ------------------ Predictive Model Path ------------------
 PREDICTIVE_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)))
 
