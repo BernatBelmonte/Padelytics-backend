@@ -7,7 +7,7 @@ from supabase import create_client, Client
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import SUPABASE_URL, SUPABASE_KEY
 
-class TournamentsDB:
+class VoleAIDB:
     def __init__(self):
         if not SUPABASE_URL or not SUPABASE_KEY:
             raise ValueError("❌ Faltan credenciales de Supabase en config.py o entorno.")
@@ -18,6 +18,20 @@ class TournamentsDB:
         res = self.client.table("tournaments").select("*").execute()
         data = res.data
         print(f"   ✅ Loaded {len(data)} existing tournaments")
+        return data
+
+    def load_existing_static_players(self):
+        print("   📂 Loading existing players from Supabase...")
+        res = self.client.table("players").select("*").execute()
+        data = res.data
+        print(f"   ✅ Loaded {len(data)} existing player slugs")
+        return data
+    
+    def load_existing_dynamic_players(self):
+        print("   📂 Loading existing dynamic players from Supabase...")
+        res = self.client.table("dynamic_players").select("*").execute()
+        data = res.data
+        print(f"   ✅ Loaded {len(data)} existing dynamic player slugs")
         return data
 
     def save_tournaments(self, tournaments_list):
@@ -33,15 +47,27 @@ class TournamentsDB:
             "avg_humidity", "court_speed_index"
         ]
 
-    # Limpiamos cada diccionario para que no lleve 'currency' ni nada extra
         cleaned_data = []
         for entry in tournaments_list:
             clean_entry = {k: v for k, v in entry.items() if k in allowed_columns}
             cleaned_data.append(clean_entry)
 
         try:
-            # Upsert maneja Insert o Update basado en la Primary Key (tournaments_id)
             self.client.table("tournaments").upsert(cleaned_data).execute()
+            print("   ✅ Database synchronization complete.")
+        except Exception as e:
+            print(f"   ❌ Critical Error in DB Upsert: {e}")
+
+    def save_static_players(self, players_list):
+        try:
+            self.client.table("players").upsert(players_list).execute()
+            print("   ✅ Database synchronization complete.")
+        except Exception as e:
+            print(f"   ❌ Critical Error in DB Upsert: {e}")
+
+    def save_dynamic_players(self, players_list):
+        try:
+            self.client.table("dynamic_players").upsert(players_list).execute()
             print("   ✅ Database synchronization complete.")
         except Exception as e:
             print(f"   ❌ Critical Error in DB Upsert: {e}")

@@ -1,15 +1,17 @@
-import time
+import os
+import sys
 import requests
-import re
-import numpy as np
 from datetime import datetime, timedelta
 from geopy.geocoders import Nominatim
-from geopy.exc import GeocoderTimedOut
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import (
+    OPEN_METEO_URL
+)  
 
 class TournamentEnricher:
     def __init__(self):
         self.geolocator = Nominatim(user_agent="voleai_analytics_bot_v2")
-        self.open_meteo_url = "https://archive-api.open-meteo.com/v1/archive"
 
     def process(self, premier_data, fip_data):
         print("\n🔹 Merging and Enriching Data...")
@@ -17,15 +19,10 @@ class TournamentEnricher:
         
         total = len(premier_data)
         for i, p_t in enumerate(premier_data):
-            # 1. MERGE CON FIP
             fip_match = self._find_fip_match(p_t, fip_data)
-            
-            # 2. LIMPIEZA BÁSICA
             start_date = str(p_t.get('start_date_utc', '')).split(' ')[0]
             end_date = str(p_t.get('end_date_utc', '')).split(' ')[0]
             
-
-            # 3. OBJETO BASE
             tourney = {
                 **p_t,
                 'fip_source_url': fip_match.get('source_url') if fip_match else None,
@@ -37,7 +34,6 @@ class TournamentEnricher:
             }
             tourney['prize_money'] = fip_match.get('prize_money') if fip_match else None
 
-            # 4. GEOCODING & WEATHER
             print(f"    [{i+1}/{total}] Enriching: {tourney['full_name']} ({tourney['city']})")
             
             if tourney['city']:
@@ -48,12 +44,10 @@ class TournamentEnricher:
                         tourney['altitude'] = weather['altitude']
                         tourney['avg_temperature'] = weather['avg_temperature']
                         tourney['avg_humidity'] = weather['avg_humidity']
-                        
-                        # 5. SPEED INDEX
+
                         tourney['court_speed_index'] = self._calculate_smart_speed_index(tourney)
             print(f"        Altitude={tourney.get('altitude')}, Temp={tourney.get('avg_temperature')}, Humidity={tourney.get('avg_humidity')}, SpeedIndex={tourney.get('court_speed_index')}")
             enriched_list.append(tourney)
-            # time.sleep(1) # Respetar APIs
 
         return enriched_list
 
@@ -83,7 +77,6 @@ class TournamentEnricher:
 
     def _get_weather_data(self, lat, lon, start, end):
         if not start or not end: return None
-        # Lógica de proxy histórico si la fecha es futura
         now = datetime.now()
         try:
             s_obj = datetime.strptime(start, "%Y-%m-%d")
@@ -102,9 +95,8 @@ class TournamentEnricher:
             "timezone": "auto"
         }
         try:
-            r = requests.get(self.open_meteo_url, params=params).json()
+            r = requests.get(OPEN_METEO_URL, params=params).json()
             if "hourly" in r:
-                # Filtrar horas de juego (11h - 23h)
                 times = r['hourly']['time']
                 temps = r['hourly']['temperature_2m']
                 hums = r['hourly']['relative_humidity_2m']
@@ -132,15 +124,12 @@ class TournamentEnricher:
 
         alt_score = alt * 0.012
         
-        # Temperatura (No lineal)
         if temp < 10: temp_score = (temp - 10) * 1.5
         elif temp <= 22: temp_score = (temp - 10) * 0.5
         else: temp_score = 6 + (temp - 22) * 2.0
         
-        # Humedad
         hum_penalty = (hum - 45) * 0.5 if hum > 45 else 0
 
-        # Peso del clima (menos impacto si es Indoor)
         weight = 0.2 if is_indoor else 1.0
         
         indoor_bonus = 5 if is_indoor else 0

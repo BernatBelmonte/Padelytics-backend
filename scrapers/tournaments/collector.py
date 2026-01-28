@@ -1,12 +1,12 @@
 # collector.py
-from scrapers.database import TournamentsDB
+from scrapers.database import VoleAIDB
 from .fip import FipTournamentsScraper
 from .premier import PremierTournamentsScraper
 from .enricher import TournamentEnricher
 
 class TournamentsCollector:
     def __init__(self):
-        self.db = TournamentsDB()
+        self.db = VoleAIDB()
         self.enricher = TournamentEnricher()
 
     def start(self):
