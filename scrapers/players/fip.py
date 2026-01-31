@@ -2,10 +2,10 @@ import os
 import re
 import sys
 import requests
+from datetime import datetime
 from bs4 import BeautifulSoup
 from time import sleep
 
-from scrapers.database import VoleAIDB
 # --- CONFIGURATION ---
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
@@ -17,32 +17,37 @@ from config import (
 class FipPlayerScraper:
     """Scrapes FIP player profiles starting from the Race Top 100 page."""
 
-    def __init__(self, existing_dynamic_players):
+    def __init__(self):
         self.players = []
-        self.existing_dynamic_players = existing_dynamic_players
         self.headers = {'User-Agent': USER_AGENT}
 
-    def start(self):
+    def run(self):
         """Main method to start scraping players."""
         player_url = self.find_start_node()
-
+        i = 0
         while player_url:
+            i +=1
+            if i == 400:
+                break
             print(f"Processing {player_url}")
             try:
                 response = requests.get(player_url, headers=self.headers, timeout=10) # type: ignore
                 player_data, next_url = self.parse_player_profile(response.content, player_url)
                 if player_data:
                     self.players.append(player_data)
-                    print(player_data)
                     player_url = next_url
             except Exception as e:
                 print(f"❌ Error processing player at {player_url}: {e}")
                 break
-            sleep(1)  # Be polite to the server
-        return self.players
+            sleep(1)
+        self.check_data()
+        static_players = self.prepare_static_players()
+        dynamic_players = self.prepare_dynamic_players()
+
+        return static_players, dynamic_players
 
     def find_start_node(self):
-        """Finds the URL of the top-ranked player from the"""
+        """Finds the URL of the top-ranked player from the FIP"""
         player_link = None
         try:
             response = requests.get(FIP_MEN_RANKING_URL, headers=self.headers, timeout=10)
@@ -85,7 +90,12 @@ class FipPlayerScraper:
         data['slug'] = raw_slug
 
         updated_day_tag = soup.select_one('.topSlider__update.topRanking__update')
-        data['updated_day'] = updated_day_tag.get_text(strip=True) if updated_day_tag else None
+        updated_day = updated_day_tag.get_text(strip=True)if updated_day_tag else None
+        if updated_day in ["-", "--", ""] or updated_day is None:
+            updated_day = None
+        else:
+            updated_day = datetime.strptime(updated_day, "%d/%m/%Y").strftime("%Y-%m-%d")
+        data['updated_day'] = updated_day
 
         points_tag = soup.select_one('.slider__pointTNumber.player__pointTNumber')
         data['points'] = points_tag.get_text(strip=True) if points_tag else None
@@ -100,12 +110,16 @@ class FipPlayerScraper:
         data['position'] = pos_tag.get_text(strip=True) if pos_tag else None
         
         birth_tag = soup.select_one('.additionalInfo__birth .additionalInfo__data')
-        data['birth_date'] = birth_tag.get_text(strip=True) if birth_tag else None
+        birth_date = birth_tag.get_text(strip=True) if birth_tag else None
+        if birth_date in ["-", "--", ""] or birth_date is None:
+            birth_date = None
+        else:
+            birth_date = datetime.strptime(birth_date, "%d/%m/%Y").strftime("%Y-%m-%d")
+        data['birth_date'] = birth_date
         
-        pair_tag = soup.select_one('.additionalInfo__paired .additionalInfo__data a')
+        pair_tag = soup.select_one('.additionalInfo__paired .content a')
         raw_slug_pair = pair_tag['href'].rstrip('/').split('/')[-1] if pair_tag else None # type: ignore
         data['current_pair'] = raw_slug_pair
-        data['current_pair_url'] = pair_tag['href'] if pair_tag else None
         
         stats = self.extract_player_stats(soup)
         data.update(stats)
@@ -116,7 +130,6 @@ class FipPlayerScraper:
             img_tag = img_container.find('img')
             if img_tag:
                 image_url = img_tag.get('data-src') or img_tag.get('src')
-                print(f"✅ URL de imagen encontrada: {image_url}")
             else:
                 print("❌ No se encontró etiqueta <img> dentro del contenedor.")
         data['image_url'] = image_url
@@ -126,7 +139,17 @@ class FipPlayerScraper:
         next_url = next_link['href'] if next_link else None
         
         return data, next_url
-    
+
+    def check_data(self):
+        """Cleans data fields with invalid placeholders."""
+        for player in self.players:
+            for key, value in player.items():
+                if value is None or str(value).strip() in ["-", "--", "", "N/A", "null", ""]:
+                    if key  == 'titles':
+                        player[key] = 0
+                    else:
+                        player[key] = None 
+
     def extract_player_stats(self, soup):
         stats = {}
 
@@ -155,7 +178,7 @@ class FipPlayerScraper:
                 # Intentamos encontrar el valor numérico asociado
                 value_el = label_el.find_next(['p', 'span', 'div', 'b'])
                 if value_el:
-                    stats[key] = value_el.get_text(strip=True)
+                    stats[key] = value_el.get_text(strip=True).replace('%', '')
                 else:
                     stats[key] = None
             else:
@@ -174,9 +197,12 @@ class FipPlayerScraper:
                 "height": player['height'],
                 "position": player['position'],
                 "birth_date": player['birth_date'],
-                "fip_url": player['fip_url']     
+                "fip_url": player['fip_url'],
+                "image_url": player['image_url'],
+                "image_public_url": None,  # To be filled after image upload
             }
             static_players.append(static_data)
+        return static_players
 
     def prepare_dynamic_players(self):
         """Returns the list of newly scraped time data for players."""
@@ -197,11 +223,3 @@ class FipPlayerScraper:
             }
             dynamic_players.append(dynamic_data)
         return dynamic_players
-        
-
-if __name__ == "__main__": 
-    db = VoleAIDB()
-    existing_dynamic_players = db.load_existing_dynamic_players()
-    existing_static_players = db.load_existing_static_players()
-    scraper = FipPlayerScraper(existing_dynamic_players)
-    scraper.start()

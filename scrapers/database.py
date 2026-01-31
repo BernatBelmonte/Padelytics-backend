@@ -1,5 +1,6 @@
 import os
 import sys
+import requests
 from datetime import datetime
 from supabase import create_client, Client
 
@@ -67,10 +68,48 @@ class VoleAIDB:
 
     def save_dynamic_players(self, players_list):
         try:
-            self.client.table("dynamic_players").upsert(players_list).execute()
+            self.client.table("dynamic_players").upsert(players_list, on_conflict="slug, snapshot_date").execute()
             print("   ✅ Database synchronization complete.")
         except Exception as e:
             print(f"   ❌ Critical Error in DB Upsert: {e}")
+
+    def save_player_images(self, players):
+        placeholder_url = "https://www.padelfip.com/wp-content/uploads/2023/02/generico.png"
+
+        for player in players:
+            if player['image_url'] == placeholder_url:
+                print(f"⚠️ Placeholder image detected for {player['slug']}. Skipping upload.")
+                del player['image_url']
+                continue
+            if player['image_url']:
+                try:
+                    response = requests.get(player['image_url'], stream=True)
+                    if response.status_code != 200:
+                        print(f"⚠️ Can't download image for {player['slug']}. Most likely player image is missing.")
+                    else:
+                        file_extension = player['image_url'].split('.')[-1].split('?')[0]
+                        file_path = f"{player['slug']}.{file_extension}"
+
+                        if not player.get('image_public_url'):
+                            try:
+                                self.client.storage.from_("player-images").upload(
+                                    path=file_path,
+                                    file=response.content,
+                                    file_options={"content-type": f"image/{file_extension}"}
+                                )
+                                print(f"✅ Picture uploaded: {file_path}")
+                            except Exception as e:
+                                print(f"ℹ️ The file might already exist in storage")
+
+                        public_url = self.client.storage.from_("player-images").get_public_url(file_path)
+
+                        player['image_public_url'] = public_url
+
+                except Exception as e:
+                    print(f"❌ Error procesando imagen para {player['slug']}: {e}")
+            del player['image_url']
+        return players
+            
 
     def update_finished_status(self, existing_data):
         """Revisa torneos antiguos y los marca como Finished si la fecha ya pasó."""
