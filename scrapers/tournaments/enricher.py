@@ -4,35 +4,52 @@ import requests
 from datetime import datetime, timedelta
 from geopy.geocoders import Nominatim
 
+# Config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
     OPEN_METEO_URL
 )  
 
 class TournamentEnricher:
+    """
+    Docstring for TournamentEnricher
+    Class to enrich tournament data with geographical and weather information.
+    Methods:
+        - __init__: Initializes the geolocator.
+        - process: Merges and enriches Premier and FIP tournament data.
+        - _find_fip_match: Finds matching FIP tournament for a given Premier tournament.
+        - _get_coordinates: Retrieves latitude and longitude for a given city and country.
+        - _get_weather_data: Fetches weather data for given coordinates and date range.
+        - _calculate_smart_speed_index: Calculates court speed index based on conditions.
+        - _prepare_data: Cleans and prepares the final enriched data.
+    """
     def __init__(self):
         self.geolocator = Nominatim(user_agent="voleai_analytics_bot_v2")
 
     def process(self, premier_data, fip_data):
-        print("\n🔹 Merging and Enriching Data...")
+        print("📥 Merging and Enriching Data...")
+        print("================================")
         enriched_list = []
         
         total = len(premier_data)
         for i, p_t in enumerate(premier_data):
             fip_match = self._find_fip_match(p_t, fip_data)
-            start_date = str(p_t.get('start_date_utc', '')).split(' ')[0]
-            end_date = str(p_t.get('end_date_utc', '')).split(' ')[0]
+            start_date = str(p_t['start_date_utc']).split(' ')[0]
+            end_date = str(p_t['end_date_utc']).split(' ')[0]
             
             tourney = {
                 **p_t,
-                'fip_source_url': fip_match.get('source_url') if fip_match else None,
-                'tournament_level': fip_match.get('tournament_level') if fip_match else None,
-                'venue': fip_match.get('venue') if fip_match else None,
-                'balls_used': fip_match.get('balls_used') if fip_match else None,
-                'venue_type': fip_match.get('venue_type') if fip_match else None,
-                'status': fip_match.get('status') if fip_match else None
+                'fip_source_url': fip_match['source_url'] if fip_match else None,
+                'tournament_level': fip_match['tournament_level'] if fip_match else None,
+                'venue': fip_match['venue'] if fip_match else None,
+                'balls_used': fip_match['balls_used'] if fip_match else None,
+                'venue_type': fip_match['venue_type'] if fip_match else None,
+                'status': fip_match['status'] if fip_match else None
             }
-            tourney['prize_money'] = fip_match.get('prize_money') if fip_match else None
+            if fip_match and not tourney['club']:
+                tourney['club'] = tourney['venue']
+            del tourney['venue']
+            tourney['prize_money'] = fip_match['prize_money'] if fip_match else None
 
             print(f"    [{i+1}/{total}] Enriching: {tourney['full_name']} ({tourney['city']})")
             
@@ -46,20 +63,21 @@ class TournamentEnricher:
                         tourney['avg_humidity'] = weather['avg_humidity']
 
                         tourney['court_speed_index'] = self._calculate_smart_speed_index(tourney)
-            print(f"        Altitude={tourney.get('altitude')}, Temp={tourney.get('avg_temperature')}, Humidity={tourney.get('avg_humidity')}, SpeedIndex={tourney.get('court_speed_index')}")
+            print(f"        Altitude={tourney['altitude']}, Temp={tourney['avg_temperature']}, Humidity={tourney['avg_humidity']}, SpeedIndex={tourney['court_speed_index']}")
+            tourney['matches_scraped'] = False
             enriched_list.append(tourney)
 
-        return enriched_list
+        return self._prepare_data(enriched_list)
 
     def _find_fip_match(self, p_t, fip_data):
-        p_start = str(p_t.get('start_date_utc', '')).split(' ')[0]
+        p_start = str(p_t['start_date_utc']).split(' ')[0]
         if not p_start: return None
         try:
             p_date = datetime.strptime(p_start, "%Y-%m-%d")
         except: return None
 
         for f_t in fip_data:
-            f_start = f_t.get('start_date')
+            f_start = f_t['start_date']
             if not f_start: continue
             try:
                 f_date = datetime.strptime(f_start, "%Y-%m-%d")
@@ -117,10 +135,10 @@ class TournamentEnricher:
         return None
 
     def _calculate_smart_speed_index(self, t):
-        is_indoor = True if 'indoor' in str(t.get('venue_type', '')).lower() else False
-        alt = t.get('altitude') or 0
-        temp = t.get('avg_temperature') or 20
-        hum = t.get('avg_humidity') or 50
+        is_indoor = True if 'indoor' in str(t['venue_type']).lower() else False
+        alt = t['altitude'] or 0
+        temp = t['avg_temperature'] or 20
+        hum = t['avg_humidity'] or 50
 
         alt_score = alt * 0.012
         
@@ -135,3 +153,19 @@ class TournamentEnricher:
         indoor_bonus = 5 if is_indoor else 0
 
         return 50 + alt_score + (temp_score * weight) - (hum_penalty * weight) + indoor_bonus
+
+    def _prepare_data(self, data):
+        allowed_columns = [
+            "tournaments_id", "event_code", "full_name", "city", "country",
+            "country_code", "prize_money", "start_date", "end_date", "club",
+            "slug", "status", "year", "fip_source_url", "tournament_level",
+            "balls_used", "venue_type", "altitude", "avg_temperature",
+            "avg_humidity", "court_speed_index", "matches_scraped"
+        ]
+
+        cleaned_data = []
+        for entry in data:
+            clean_entry = {k: v for k, v in entry.items() if k in allowed_columns}
+            cleaned_data.append(clean_entry)
+
+        return cleaned_data

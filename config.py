@@ -31,7 +31,9 @@ OPEN_METEO_URL = "https://archive-api.open-meteo.com/v1/archive"
 
 # ---- Request configuration
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-YEARS_TO_SCRAPE = ["2024", "2025"]
+YEARS_TO_SCRAPE = [2024, 2025, 2026]
+MONTHS_TO_SCRAPE = ["January", "February", "March", "April", "May", "June", 
+                    "July", "August", "September", "October", "November", "December"]
 
 # ---- Models
 ML_MODELS = os.path.join(BACKEND, "models")

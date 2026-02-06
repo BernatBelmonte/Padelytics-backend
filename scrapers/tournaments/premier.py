@@ -8,70 +8,81 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# Importar configuración
+# Config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import PREMIER_PADEL_TOURNAMENTS_URL, YEARS_TO_SCRAPE
+from config import (
+    PREMIER_PADEL_TOURNAMENTS_URL,
+    YEARS_TO_SCRAPE
+)
 
 class PremierTournamentsScraper:
-    def __init__(self, existing_data_ref):
-        self.existing_ids = [t['tournaments_id'] for t in existing_data_ref]
+    """
+    Docstring for PremierTournamentsScraper
+    Class to scrape tournament data from the Premier Padel website using Selenium.
+    Methods:
+        - __init__: Initializes the scraper with existing tournament IDs.
+        - run: Main method to start scraping process.
+        - _process_year: Processes tournaments for a specific year.
+        - _select_year: Selects the desired year in the website's dropdown.
+        - _catch_api_response: Captures and processes the API response containing tournament data.
+    """
+    def __init__(self, existing_ids):
+        self.existing_ids = existing_ids
         self.scraped_data = []
         
-        # Configurar Selenium
+        # Selenium setup
         opts = Options()
         opts.add_argument("--window-size=1920,1080")
         opts.add_argument("--no-sandbox")
-        opts.add_argument("--headless") # Headless para producción/servidor
+        # opts.add_argument("--headless")
         self.driver = webdriver.Chrome(options=opts)
         self.wait = WebDriverWait(self.driver, 10)
 
-    def run(self):
-        print("   📥 Scraping Premier tournaments...")
-        print("    ==================================")
+    def run(self, last_date):
+        print("📥 Scraping Premier tournaments...")
+        print("==================================")
         self.driver.get(PREMIER_PADEL_TOURNAMENTS_URL)
         time.sleep(5)
-
+        years_to_scrape = [year for year in YEARS_TO_SCRAPE if not last_date or year >= last_date.year]
+        months_to_scrape_first_year = len([month for month in range(1, 13) if not last_date or month >= last_date.month])
         try:
-            for year in YEARS_TO_SCRAPE:
-                self._process_year(year)
+            first = True
+            for year in years_to_scrape:
+                self._process_year(year, first, months_to_scrape_first_year)
+                first = False
         except Exception as e:
-            print(f"❌ Critical Selenium Error: {e}")
+            print(f"    ❌ Selenium Error: {e}")
         finally:
             self.driver.quit()
-        
         return self.scraped_data
 
-    def _process_year(self, year):
-        print(f"\n    📅 Scanning Premier Year: {year}")
+    def _process_year(self, year, first, months_to_scrape_first_year):
+        print(f"    📅 Scanning Premier Year: {year}")
         if not self._select_year(year): return
 
-        # Meses a escanear
-        MONTHS = ["January", "February", "March", "April", "May", "June", 
-                  "July", "August", "September", "October", "November", "December"]
-
-        # Rebobinar a Enero
+        # Rewind to January
         try:
             left_arrow = self.wait.until(EC.element_to_be_clickable(
                 (By.XPATH, "//button[.//img[contains(@src, 'larrow')]]")
             ))
             for _ in range(12):
+                del self.driver.requests
                 left_arrow.click()
                 time.sleep(0.2)
-            del self.driver.requests
-        except: pass # Quizás ya estábamos al principio
+        except: pass # Maybe we were already at the beginning
 
-        # Avanzar meses
+        # Advance months
         try:
             right_arrow = self.driver.find_element(By.XPATH, "//button[.//img[contains(@src, 'rarrow')]]")
-            for i, month in enumerate(MONTHS):
-                print(f"        👉 [{i+1}/12] {month}...", end="")
+            for i in range(12 - months_to_scrape_first_year) if first else range(12):
+                print(f"        👉 [{i+1}/12]...", end="")
                 self._catch_api_response()
                 if i < 11:
                     del self.driver.requests
                     right_arrow.click()
                     time.sleep(0.5)
         except Exception as e:
-            print(f"   ❌ Nav error: {e}")
+            print(f"    ❌ Nav error: {e}")
 
     def _select_year(self, year):
         try:
@@ -87,7 +98,7 @@ class PremierTournamentsScraper:
                 time.sleep(2)
                 return True
         except: pass
-        print(f"   ⚠️ Could not select {year}")
+        print(f"    ⚠️ Could not select {year}")
         return False
 
     def _catch_api_response(self):
@@ -101,12 +112,12 @@ class PremierTournamentsScraper:
                             items = body.get('data', [])
                             new_count = 0
                             for t in items:
-                                if t['tournaments_id'] in self.existing_ids:
-                                    print(t['full_name'], t['tournaments_id'])
+                                if t['tournaments_id'] not in self.existing_ids and (t['tournaments_id'] not in [x['tournaments_id'] for x in self.scraped_data]):
+                                    self.scraped_data.append(t)
+                                    new_count += 1
+                                else:
                                     continue
-                                self.scraped_data.append(t)
-                                new_count += 1
-                            print(f" ✅ Got {new_count} new.")
+                                
+                            print(f"    ✅ Got {new_count} new.")
                             return
                     except: pass
-        print(" .")

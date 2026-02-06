@@ -6,7 +6,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 from time import sleep
 
-# --- CONFIGURATION ---
+# Config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
     USER_AGENT,
@@ -15,42 +15,65 @@ from config import (
 )  
 
 class FipPlayerScraper:
-    """Scrapes FIP player profiles starting from the Race Top 100 page."""
 
     def __init__(self):
         self.players = []
         self.headers = {'User-Agent': USER_AGENT}
 
-    def run(self):
+    def run(self, last_scraped_day):
         """Main method to start scraping players."""
-        player_url = self.find_start_node()
-        i = 0
+        updated_day = self._check_new_data()
+        if not updated_day:
+            print("❌ No new data available. Running scraper anyway to ensure data is up to date.")
+        elif not last_scraped_day:
+            print("❌ No previous data found. Running scraper to collect initial data.")
+        elif updated_day == last_scraped_day:
+            print("❌ Data is already up to date. Exiting scraper.")
+            return [], []
+        else:
+            print(f"✅ New data available for date {updated_day}. Starting scraper.")
+
+        player_url = self._find_start_node()
         while player_url:
-            i +=1
-            if i == 400:
-                break
             print(f"Processing {player_url}")
             try:
-                response = requests.get(player_url, headers=self.headers, timeout=10) # type: ignore
-                player_data, next_url = self.parse_player_profile(response.content, player_url)
+                response = requests.get(player_url, headers=self.headers, timeout=(10, 30)) # type: ignore
+                player_data, next_url = self._parse_player_profile(response.content, player_url)
                 if player_data:
                     self.players.append(player_data)
                     player_url = next_url
             except Exception as e:
                 print(f"❌ Error processing player at {player_url}: {e}")
                 break
-            sleep(1)
-        self.check_data()
-        static_players = self.prepare_static_players()
-        dynamic_players = self.prepare_dynamic_players()
+            sleep(0.5)
+
+        self._check_data()
+        static_players = self._prepare_static_players()
+        dynamic_players = self._prepare_dynamic_players()
 
         return static_players, dynamic_players
 
-    def find_start_node(self):
+    def _check_new_data(self):
+        """Checks if new data is available by comparing the updated day in main page."""
+        try:
+            response = requests.get(FIP_MEN_RANKING_URL, headers=self.headers, timeout=(10, 30))
+            soup = BeautifulSoup(response.content, 'html.parser')
+            updated_day_tag = soup.select_one('.topSlider__update')
+            updated_day = updated_day_tag.get_text(strip=True) if updated_day_tag else None
+            if updated_day in ["-", "--", ""] or updated_day is None:
+                return False
+            updated_day = datetime.strptime(updated_day, "%d/%m/%Y").strftime("%Y-%m-%d")
+            updated_day = datetime.strptime(updated_day, "%Y-%m-%d")
+            return updated_day.date()
+        except Exception:
+            return False
+        
+    
+    def _find_start_node(self):
         """Finds the URL of the top-ranked player from the FIP"""
         player_link = None
         try:
-            response = requests.get(FIP_MEN_RANKING_URL, headers=self.headers, timeout=10)
+            response = requests.get(FIP_MEN_RANKING_URL, headers=self.headers, timeout=(10, 30))
             soup = BeautifulSoup(response.content, 'html.parser')
             
             first_player_container = soup.select_one('.slider__rankings .slider__item')
@@ -75,8 +98,8 @@ class FipPlayerScraper:
                 
         return player_link
 
-    def parse_player_profile(self, html_content, current_url):
-        """Extracts player details using precise CSS selectors."""
+    def _parse_player_profile(self, html_content, current_url):
+        """Extracts player details."""
         soup = BeautifulSoup(html_content, 'html.parser')
         data = {} 
 
@@ -121,7 +144,7 @@ class FipPlayerScraper:
         raw_slug_pair = pair_tag['href'].rstrip('/').split('/')[-1] if pair_tag else None # type: ignore
         data['current_pair'] = raw_slug_pair
         
-        stats = self.extract_player_stats(soup)
+        stats = self._extract_player_stats(soup)
         data.update(stats)
 
         img_container = soup.select_one('.slider__img.player__img')
@@ -140,23 +163,34 @@ class FipPlayerScraper:
         
         return data, next_url
 
-    def check_data(self):
+    def _check_data(self):
         """Cleans data fields with invalid placeholders."""
+        int_fields = ["points", "matches_played", "matches_won", "matches_lost",
+                          "consecutive_victories", "titles", "race_position"]
+        numeric_fields = ["effectiveness", "height"]
+        
         for player in self.players:
             for key, value in player.items():
+                if key in numeric_fields:
+                    try:
+                        player[key] = float(value) if value is not None else None
+                    except:
+                        player[key] = None
+                elif key in int_fields:
+                    try:
+                        player[key] = int(value) if value is not None else None
+                    except:
+                        player[key] = None
                 if value is None or str(value).strip() in ["-", "--", "", "N/A", "null", ""]:
                     if key  == 'titles':
                         player[key] = 0
                     else:
                         player[key] = None 
 
-    def extract_player_stats(self, soup):
+    def _extract_player_stats(self, soup):
+        """Extracts player statistics from the profile page soup."""
         stats = {}
 
-        # En la web de la FIP, las estadísticas suelen estar en contenedores 
-        # con clases como 'player-stats__item' o dentro de una lista 'overview'
-        # Buscamos por el texto de la etiqueta para ser precisos
-        
         mapping = {
             "Match played": "matches_played",
             "Match won": "matches_won",
@@ -167,15 +201,10 @@ class FipPlayerScraper:
             "Race": "race_position"
         }
 
-        # Buscamos todos los bloques de información que contienen un título y un valor
-        # Basado en la estructura común de overview__title vista en otros scrapers
         for label, key in mapping.items():
-            # Buscamos el SPAN que contiene el texto de la estadística (ej: "Match played")
             label_el = soup.find(['span', 'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'], string=re.compile(rf'^{label}', re.IGNORECASE))
             
             if label_el:
-                # El valor suele estar en el siguiente elemento hermano o en un elemento padre cercano
-                # Intentamos encontrar el valor numérico asociado
                 value_el = label_el.find_next(['p', 'span', 'div', 'b'])
                 if value_el:
                     stats[key] = value_el.get_text(strip=True).replace('%', '')
@@ -185,10 +214,9 @@ class FipPlayerScraper:
                 stats[key] = None
         return stats
     
-    def prepare_static_players(self):
+    def _prepare_static_players(self):
         """Returns the list of newly scraped static data for players."""
         static_players = []
-
         for player in self.players:
             static_data = {
                 "slug": player['slug'],
@@ -204,7 +232,7 @@ class FipPlayerScraper:
             static_players.append(static_data)
         return static_players
 
-    def prepare_dynamic_players(self):
+    def _prepare_dynamic_players(self):
         """Returns the list of newly scraped time data for players."""
         dynamic_players = []
         for player in self.players:

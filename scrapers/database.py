@@ -23,18 +23,76 @@ class VoleAIDB:
 
     def load_existing_static_players(self):
         print("   📂 Loading existing players from Supabase...")
-        res = self.client.table("players").select("*").execute()
-        data = res.data
-        print(f"   ✅ Loaded {len(data)} existing player slugs")
-        return data
+        all_players = []
+        limit = 1000
+        offset = 0
+
+        while True:
+            response = self.client.table("players") \
+                .select("*") \
+                .range(offset, offset + limit - 1) \
+                .execute()
+            
+            data = response.data
+            all_players.extend(data)
+            
+            # Si recibimos menos de 1000, significa que llegamos al final
+            if len(data) < limit:
+                break
+                
+            offset += limit
+
+        print(f"Total recuperado: {len(all_players)}")
+        return all_players
     
     def load_existing_dynamic_players(self):
         print("   📂 Loading existing dynamic players from Supabase...")
-        res = self.client.table("dynamic_players").select("*").execute()
-        data = res.data
-        print(f"   ✅ Loaded {len(data)} existing dynamic player slugs")
-        return data
+        all_players = []
+        limit = 1000
+        offset = 0
 
+        while True:
+            response = self.client.table("dynamic_players") \
+                .select("*") \
+                .range(offset, offset + limit - 1) \
+                .execute()
+            
+            data = response.data
+            all_players.extend(data)
+            
+            # Si recibimos menos de 1000, significa que llegamos al final
+            if len(data) < limit:
+                break
+                
+            offset += limit
+
+        print(f"Total recuperado: {len(all_players)}")
+        return all_players
+
+    def load_existing_matches(self):
+        print("   📂 Loading existing matches from Supabase...")
+        all_matches = []
+        limit = 1000
+        offset = 0
+
+        while True:
+            response = self.client.table("matches") \
+                .select("*") \
+                .range(offset, offset + limit - 1) \
+                .execute()
+            
+            data = response.data
+            all_matches.extend(data)
+            
+            # Si recibimos menos de 1000, significa que llegamos al final
+            if len(data) < limit:
+                break
+                
+            offset += limit
+
+        print(f"Total recuperado: {len(all_matches)}")
+        return all_matches
+    
     def save_tournaments(self, tournaments_list):
         if not tournaments_list:
             print("⚠️ No data to save.")
@@ -45,7 +103,7 @@ class VoleAIDB:
             "country_code", "prize_money", "start_date", "end_date", "club",
             "slug", "status", "year", "fip_source_url", "tournament_level",
             "venue", "balls_used", "venue_type", "altitude", "avg_temperature",
-            "avg_humidity", "court_speed_index"
+            "avg_humidity", "court_speed_index", "matches_scraped"
         ]
 
         cleaned_data = []
@@ -54,12 +112,15 @@ class VoleAIDB:
             cleaned_data.append(clean_entry)
 
         try:
-            self.client.table("tournaments").upsert(cleaned_data).execute()
+            self.client.table("tournaments").upsert(cleaned_data, on_conflict="tournaments_id").execute()
             print("   ✅ Database synchronization complete.")
         except Exception as e:
             print(f"   ❌ Critical Error in DB Upsert: {e}")
 
     def save_static_players(self, players_list):
+        if not players_list:
+            print("⚠️ No data to save.")
+            return
         try:
             self.client.table("players").upsert(players_list).execute()
             print("   ✅ Database synchronization complete.")
@@ -67,6 +128,9 @@ class VoleAIDB:
             print(f"   ❌ Critical Error in DB Upsert: {e}")
 
     def save_dynamic_players(self, players_list):
+        if not players_list:
+            print("⚠️ No data to save.")
+            return
         try:
             self.client.table("dynamic_players").upsert(players_list, on_conflict="slug, snapshot_date").execute()
             print("   ✅ Database synchronization complete.")
@@ -74,6 +138,7 @@ class VoleAIDB:
             print(f"   ❌ Critical Error in DB Upsert: {e}")
 
     def save_player_images(self, players):
+
         placeholder_url = "https://www.padelfip.com/wp-content/uploads/2023/02/generico.png"
 
         for player in players:
@@ -110,6 +175,15 @@ class VoleAIDB:
             del player['image_url']
         return players
             
+    def save_matches(self, matches):
+        if not matches:
+            print("⚠️ No data to save.")
+            return
+        try:
+            self.client.table("matches").upsert(matches, on_conflict="tournaments_match_id").execute()
+            print("   ✅ Database synchronization complete.")
+        except Exception as e:
+            print(f"   ❌ Critical Error in DB Upsert: {e}")
 
     def update_finished_status(self, existing_data):
         """Revisa torneos antiguos y los marca como Finished si la fecha ya pasó."""
