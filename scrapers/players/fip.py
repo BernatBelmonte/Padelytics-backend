@@ -233,21 +233,25 @@ class FipPlayerScraper:
         return static_players
 
     def _prepare_dynamic_players(self):
-        """Returns the list of newly scraped time data for players."""
+        """
+        Returns the list of newly scraped time data for players.
+        Only includes players with at least one point to avoid cluttering the database with inactive players.
+        """
         dynamic_players = []
         for player in self.players:
-            dynamic_data = {
-                "slug": player['slug'],
-                "snapshot_date": player['updated_day'],
-                "points": player['points'],
-                "matches_played": player['matches_played'],
-                "matches_won": player['matches_won'],
-                "matches_lost": player['matches_lost'],
-                "consecutive_victories": player['consecutive_victories'],
-                "effectiveness": player['effectiveness'],
-                "titles": player['titles'],
-                "race_position": player.get('race_position'),
-                "paired_with_slug": player['current_pair'],
-            }
-            dynamic_players.append(dynamic_data)
+            if player['points'] is not None and player['points'] > 0:
+                dynamic_data = {
+                    "slug": player['slug'],
+                    "snapshot_date": player['updated_day'],
+                    "points": player['points'],
+                    "matches_played": player['matches_played'],
+                    "matches_won": player['matches_won'],
+                    "matches_lost": player['matches_lost'],
+                    "consecutive_victories": player['consecutive_victories'],
+                    "effectiveness": player['effectiveness'],
+                    "titles": player['titles'],
+                    "race_position": player.get('race_position'),
+                    "paired_with_slug": player['current_pair'],
+                }
+                dynamic_players.append(dynamic_data)
         return dynamic_players

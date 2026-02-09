@@ -59,7 +59,7 @@ class DynamicPairsProcessor:
             # Añadir comparativas históricas
             if prev_snapshot:
                 record["rank_change"] = (prev_snapshot.get('race_position') or 0) - base_info['rank'] if base_info['rank'] else 0 # type: ignore
-                record["points_change"] = base_info['points'] - float(prev_snapshot.get('points', 0)) # type: ignore
+                record["points_change"] = int(base_info['points'] - prev_snapshot.get('points', 0)) # type: ignore
                 record["is_new_pair"] = False
             else:
                 record["rank_change"] = None

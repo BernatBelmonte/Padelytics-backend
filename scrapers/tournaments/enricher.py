@@ -155,6 +155,7 @@ class TournamentEnricher:
         return 50 + alt_score + (temp_score * weight) - (hum_penalty * weight) + indoor_bonus
 
     def _prepare_data(self, data):
+        # Status can be Active, Finished
         allowed_columns = [
             "tournaments_id", "event_code", "full_name", "city", "country",
             "country_code", "prize_money", "start_date", "end_date", "club",

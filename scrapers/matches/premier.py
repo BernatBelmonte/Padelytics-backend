@@ -65,9 +65,9 @@ class PremierMatchesScraper:
             draw_url = f"{PREMIER_PADEL_RESULTS_URL}{slug}/draws" 
             print(f"   🕷️ Fetching Draw Data from: {draw_url}")
             
-            del self.driver.requests # Clear logs
+            del self.driver.requests
             self.driver.get(draw_url)
-            time.sleep(4) # Wait for API load
+            time.sleep(4)
             
             draw_data = self._catch_api_response_draw()
             if draw_data:
@@ -112,9 +112,9 @@ class PremierMatchesScraper:
                     break
             
             if clickable_btn:
-                del self.driver.requests # Clear logs
+                del self.driver.requests
                 self.driver.execute_script("arguments[0].click();", clickable_btn)
-                time.sleep(3) # Wait for Quali Draw API
+                time.sleep(3)
                 
                 quali_data = self._catch_api_response_draw()
                 if quali_data:
@@ -197,7 +197,7 @@ class PremierMatchesScraper:
                 # Scroll into view
                 self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});", button)
                 time.sleep(0.5)
-                del self.driver.requests # Clear logs
+                del self.driver.requests
                 
                 try:
                     button.click()
