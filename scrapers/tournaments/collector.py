@@ -27,7 +27,6 @@ class TournamentsCollector:
         - _update_finished_status: Updates the status of old tournaments to 'Finished'.
     """
     def __init__(self):
-        self.enricher = TournamentEnricher()
         self.client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
     def start(self):
@@ -53,7 +52,7 @@ class TournamentsCollector:
         print("\n----------------------------------------\n")
         
         # 3. Merge and Enrich (Merge + Geo + Weather)
-        final_data = self.enricher.process(premier_data, fip_data)
+        final_data = TournamentEnricher(existing_tournaments).process(premier_data, fip_data)
         print("\n----------------------------------------\n")
         print("Fip Data Collected:", len(fip_data), "tournaments")
         print("Premier Data Collected:", len(premier_data), "tournaments")
@@ -66,7 +65,7 @@ class TournamentsCollector:
     def _load_tournaments(self):
         print("📂 Loading existing tournaments from Supabase...")
         try:
-            res = self.client.table("tournaments").select("tournaments_id, fip_source_url, end_date").execute()
+            res = self.client.table("tournaments").select("*").execute()
             data = res.data or []
             print(f"   ✅ Loaded {len(data)} existing tournaments.")
             return data
@@ -92,7 +91,7 @@ class TournamentsCollector:
         
         for t in tournaments:
             if t['status'] != 'Finished':
-                end_date_str = t['end_date_utc'] or t['end_date']
+                end_date_str = t['end_date']
                 if end_date_str:
                     try:
                         # Clean date if it comes with time

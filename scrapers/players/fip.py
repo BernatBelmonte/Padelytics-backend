@@ -2,6 +2,8 @@ import os
 import re
 import sys
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from datetime import datetime
 from bs4 import BeautifulSoup
 from time import sleep
@@ -19,6 +21,7 @@ class FipPlayerScraper:
     def __init__(self):
         self.players = []
         self.headers = {'User-Agent': USER_AGENT}
+        self.session = self._create_robust_session()
 
     def run(self, last_scraped_day):
         """Main method to start scraping players."""
@@ -37,9 +40,11 @@ class FipPlayerScraper:
         while player_url:
             print(f"Processing {player_url}")
             try:
-                response = requests.get(player_url, headers=self.headers, timeout=(10, 30)) # type: ignore
+                response = self.session.get(player_url, headers=self.headers, timeout=(15, 30)) # type: ignore
                 player_data, next_url = self._parse_player_profile(response.content, player_url)
                 if player_data:
+                    if player_data['points'] == "0":
+                        break
                     self.players.append(player_data)
                     player_url = next_url
             except Exception as e:
@@ -53,10 +58,26 @@ class FipPlayerScraper:
 
         return static_players, dynamic_players
 
+    def _create_robust_session(self):
+        session = requests.Session()
+    
+        retry_strategy = Retry(
+            total=5,  # Max number of retries
+            backoff_factor=1,  # Wait 1 second before the first retry, then 2 seconds, then 4 seconds, etc.
+            status_forcelist=[429, 500, 502, 503, 504],  # HTTP status codes to trigger a retry
+            allowed_methods=["HEAD", "GET", "OPTIONS"]  # Retry only for these HTTP methods
+        )
+        
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        
+        return session
+
     def _check_new_data(self):
         """Checks if new data is available by comparing the updated day in main page."""
         try:
-            response = requests.get(FIP_MEN_RANKING_URL, headers=self.headers, timeout=(10, 30))
+            response = self.session.get(FIP_MEN_RANKING_URL, headers=self.headers, timeout=(15, 30))
             soup = BeautifulSoup(response.content, 'html.parser')
             updated_day_tag = soup.select_one('.topSlider__update')
             updated_day = updated_day_tag.get_text(strip=True) if updated_day_tag else None
@@ -73,7 +94,7 @@ class FipPlayerScraper:
         """Finds the URL of the top-ranked player from the FIP"""
         player_link = None
         try:
-            response = requests.get(FIP_MEN_RANKING_URL, headers=self.headers, timeout=(10, 30))
+            response = self.session.get(FIP_MEN_RANKING_URL, headers=self.headers, timeout=(15, 30))
             soup = BeautifulSoup(response.content, 'html.parser')
             
             first_player_container = soup.select_one('.slider__rankings .slider__item')

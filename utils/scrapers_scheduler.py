@@ -27,7 +27,7 @@ class ScrapersScheduler:
         print("===============================")
         tournaments = self._get_upcoming_tournaments()
         for tournament in tournaments:
-            tournament_id = tournament['id']
+            tournament_id = tournament['tournaments_id']
             start_date_str = tournament['start_date']
             end_date_str = tournament['end_date']
 
@@ -40,7 +40,7 @@ class ScrapersScheduler:
             if players_scraper_time > now:
                 self.scheduled_tasks.append({
                     "task_type": "players",
-                    "scheduled_date": players_scraper_time,
+                    "scheduled_date": players_scraper_time.strftime("%Y-%m-%d"),
                     "tournament_id": tournament_id,
                     "log": None
 
@@ -51,7 +51,7 @@ class ScrapersScheduler:
             if matches_scraper_time > now:
                 self.scheduled_tasks.append({
                     "task_type": "matches",
-                    "scheduled_date": matches_scraper_time,
+                    "scheduled_date": matches_scraper_time.strftime("%Y-%m-%d"),
                     "tournament_id": tournament_id,
                     "log": None
                 })
@@ -60,21 +60,40 @@ class ScrapersScheduler:
             tournament_scraper_time = start_date - timedelta(days=1)
             if tournament_scraper_time > now:
                 self.scheduled_tasks.append({
-                    "task_type": "tournament",
-                    "scheduled_date": tournament_scraper_time,
+                    "task_type": "tournaments",
+                    "scheduled_date": tournament_scraper_time.strftime("%Y-%m-%d"),
                     "tournament_id": tournament_id,
                     "log": None
                 })
 
+            # Schedule Tournament Scraper 1 day after the tournament ends to update the status to finished
+            finished_scraper_time = end_date + timedelta(days=1)
+            if finished_scraper_time > now:
+                self.scheduled_tasks.append({
+                    "task_type": "tournaments",
+                    "scheduled_date": finished_scraper_time.strftime("%Y-%m-%d"),
+                    "tournament_id": tournament_id,
+                    "log": None
+                })
+
+        self._save_scheduled_tasks()
+
     def _get_upcoming_tournaments(self):
         """
-        Fetch tournaments that have status != 'finished'. Plus we check 
+        Fetch tournaments that have status = Upcoming. Plus we check 
         the end date to avoid scheduling scrapers for tournaments that 
         have already ended but haven't been marked as finished in the database.
 
         :return: List of upcoming tournaments
         """
-        return self.client.table('tournaments').select('*').neq('status', 'finished').lt('end_date', datetime.now().strftime("%Y-%m-%d")).execute()
+        try:
+            res = self.client.table('tournaments').select('*').eq('status', 'Upcoming').execute()
+            data = res.data or []
+            print(f"Found {len(data)} tournaments to schedule")
+            return data
+        except Exception as e:
+            print(e)
+            return []
     
 
     def _save_scheduled_tasks(self):
@@ -85,9 +104,11 @@ class ScrapersScheduler:
             print("⚠️ No tasks to schedule.")
             return
         try:
-            self.client.table("scheduled_tasks").upsert(self.scheduled_tasks, on_conflict="type, scheduled_date", ignore_duplicates=True).execute()
+            self.client.table("scraper_tasks").upsert(self.scheduled_tasks, on_conflict="task_type, scheduled_date", ignore_duplicates=True).execute()
             print("   ✅ Scheduled tasks saved to database.")
         except Exception as e:
             print(f"   ❌ Critical Error in saving scheduled tasks: {e}")
             
         
+if __name__ == "__main__":
+    scheduler = ScrapersScheduler().run()

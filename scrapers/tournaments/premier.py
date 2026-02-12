@@ -112,7 +112,7 @@ class PremierTournamentsScraper:
                             items = body.get('data', [])
                             new_count = 0
                             for t in items:
-                                if t['tournaments_id'] not in self.existing_ids and (t['tournaments_id'] not in [x['tournaments_id'] for x in self.scraped_data]):
+                                if t['tournaments_id'] not in [x['tournaments_id'] for x in self.scraped_data]:
                                     self.scraped_data.append(t)
                                     new_count += 1
                                 else:

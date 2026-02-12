@@ -22,7 +22,7 @@ from config import (
 class PremierMatchesScraper:
     """Scraper for Premier Padel matches data."""
 
-    def __init__(self, existing_matches, tournaments):
+    def __init__(self,tournaments):
         chrome_options = Options()
         chrome_options.add_argument("--window-size=1920,1080")
         chrome_options.add_argument("--no-sandbox")
@@ -30,8 +30,7 @@ class PremierMatchesScraper:
     
         self.driver = webdriver.Chrome(options=chrome_options)
         self.wait = WebDriverWait(self.driver, 10)
-        self.existing_matches = existing_matches
-        self.existing_match_ids = [m['tournaments_match_id'] for m in existing_matches]
+        self.existing_match_ids = []
         self.tournament_slugs = [t['slug'] for t in tournaments]
         self.all_matches = [] 
         self.cleaned_matches = []
@@ -49,8 +48,6 @@ class PremierMatchesScraper:
                 success = self._process_tournament_slug(slug)
                 if success:
                     tournaments_id_scraped.append(slug)
-                    
-            self.all_matches.extend(self.existing_matches)
         except Exception as e:
             print(f"❌ Critical Error: {e}")
         finally:

@@ -1,8 +1,9 @@
 import os
 import sys
 import requests
+import time
 from datetime import datetime, timedelta
-from geopy.geocoders import Nominatim
+from geopy.geocoders import Nominatim, ArcGIS
 
 # Config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,8 +24,9 @@ class TournamentEnricher:
         - _calculate_smart_speed_index: Calculates court speed index based on conditions.
         - _prepare_data: Cleans and prepares the final enriched data.
     """
-    def __init__(self):
-        self.geolocator = Nominatim(user_agent="voleai_analytics_bot_v2")
+    def __init__(self, existing_tournaments):
+        self.geolocator = ArcGIS(timeout=10) # type: ignore
+        self.existing_tournaments = existing_tournaments
 
     def process(self, premier_data, fip_data):
         print("📥 Merging and Enriching Data...")
@@ -34,6 +36,9 @@ class TournamentEnricher:
         total = len(premier_data)
         for i, p_t in enumerate(premier_data):
             fip_match = self._find_fip_match(p_t, fip_data)
+            if not fip_match:
+                print(f" [{i+1}/{total}] No FIP match found for: {p_t['full_name']} ({p_t['city']})")
+                continue
             start_date = str(p_t['start_date_utc']).split(' ')[0]
             end_date = str(p_t['end_date_utc']).split(' ')[0]
             
@@ -44,13 +49,17 @@ class TournamentEnricher:
                 'venue': fip_match['venue'] if fip_match else None,
                 'balls_used': fip_match['balls_used'] if fip_match else None,
                 'venue_type': fip_match['venue_type'] if fip_match else None,
-                'status': fip_match['status'] if fip_match else None
+                'status': fip_match['status'] if fip_match else None,
+                'is_enriched': False
             }
             if fip_match and not tourney['club']:
                 tourney['club'] = tourney['venue']
             del tourney['venue']
             tourney['prize_money'] = fip_match['prize_money'] if fip_match else None
-
+            if not tourney['city'] and fip_match and fip_match['city']:
+                tourney['city'] = fip_match['city']
+            if not tourney['country'] and fip_match and fip_match['country']:
+                tourney['country'] = fip_match['country']
             print(f"    [{i+1}/{total}] Enriching: {tourney['full_name']} ({tourney['city']})")
             
             if tourney['city']:
@@ -58,13 +67,21 @@ class TournamentEnricher:
                 if lat:
                     weather = self._get_weather_data(lat, lon, start_date, end_date)
                     if weather:
+                        tourney['is_enriched'] = True
                         tourney['altitude'] = weather['altitude']
                         tourney['avg_temperature'] = weather['avg_temperature']
                         tourney['avg_humidity'] = weather['avg_humidity']
 
                         tourney['court_speed_index'] = self._calculate_smart_speed_index(tourney)
-            print(f"        Altitude={tourney['altitude']}, Temp={tourney['avg_temperature']}, Humidity={tourney['avg_humidity']}, SpeedIndex={tourney['court_speed_index']}")
+                        print(f"        Altitude={tourney['altitude']}, Temp={tourney['avg_temperature']}, Humidity={tourney['avg_humidity']}, SpeedIndex={tourney['court_speed_index']}")
+                    else:
+                        print("        ⚠️ Weather data not found.")
             tourney['matches_scraped'] = False
+            for ext_t in self.existing_tournaments:
+                if ext_t['tournaments_id'] == tourney['tournaments_id']:
+                    tourney['matches_scraped'] = ext_t['matches_scraped']
+                    break
+            time.sleep(2)
             enriched_list.append(tourney)
 
         return self._prepare_data(enriched_list)
@@ -91,7 +108,9 @@ class TournamentEnricher:
         try:
             loc = self.geolocator.geocode(query, timeout=10) # type: ignore
             return (loc.latitude, loc.longitude) if loc else (None, None) # type: ignore
-        except: return None, None
+        except Exception as e:
+            print(e)
+            return None, None
 
     def _get_weather_data(self, lat, lon, start, end):
         if not start or not end: return None
@@ -161,7 +180,7 @@ class TournamentEnricher:
             "country_code", "prize_money", "start_date", "end_date", "club",
             "slug", "status", "year", "fip_source_url", "tournament_level",
             "balls_used", "venue_type", "altitude", "avg_temperature",
-            "avg_humidity", "court_speed_index", "matches_scraped"
+            "avg_humidity", "court_speed_index", "matches_scraped", "is_enriched"
         ]
 
         cleaned_data = []
