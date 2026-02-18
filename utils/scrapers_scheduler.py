@@ -1,6 +1,7 @@
 import os
 import sys
 from datetime import datetime, timedelta
+from typing import Dict, List
 from supabase import create_client, Client
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,7 +26,7 @@ class ScrapersScheduler:
         """
         print("🚀 STARTING Scrapers Scheduler")
         print("===============================")
-        tournaments = self._get_upcoming_tournaments()
+        tournaments: List[Dict] = self._get_upcoming_tournaments()
         for tournament in tournaments:
             tournament_id = tournament['tournaments_id']
             start_date_str = tournament['start_date']
@@ -78,7 +79,7 @@ class ScrapersScheduler:
 
         self._save_scheduled_tasks()
 
-    def _get_upcoming_tournaments(self):
+    def _get_upcoming_tournaments(self) -> List[Dict]:
         """
         Fetch tournaments that have status = Upcoming. Plus we check 
         the end date to avoid scheduling scrapers for tournaments that 
@@ -90,7 +91,7 @@ class ScrapersScheduler:
             res = self.client.table('tournaments').select('*').eq('status', 'Upcoming').execute()
             data = res.data or []
             print(f"Found {len(data)} tournaments to schedule")
-            return data
+            return data # type: ignore
         except Exception as e:
             print(e)
             return []

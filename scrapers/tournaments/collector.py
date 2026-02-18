@@ -34,6 +34,12 @@ class TournamentsCollector:
     def start(self):
         """
         The main method to start the tournament collection process. It orchestrates the entire workflow from fetching existing data, scraping new data, enriching it, and saving it back to the database.
+        The method performs the following steps:
+        
+        1. Fetches the last snapshot date from the database to determine the starting point for scraping new tournament data.
+        2. Uses the FipTournamentsScraper and PremierTournamentsScraper to scrape tournament data starting from the last finished tournament date.
+        3. Enriches the scraped tournament data using the TournamentEnricher, which adds additional information such as weather data, coordinates, and a calculated court speed index.
+        4. Saves the enriched tournament data back to the database using an upsert operation to ensure that existing records are updated and new records are inserted without creating duplicates.
         """
         print("🚀 STARTING Padelytics TOURNAMENT COLLECTOR")
         print("============================================")
