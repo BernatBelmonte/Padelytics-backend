@@ -80,6 +80,7 @@ class TournamentEnricher:
         start_date = str(p_t['start_date_utc']).split(' ')[0]
         end_date = str(p_t['end_date_utc']).split(' ')[0]
         tourney = {
+                "id": p_t.get('tournaments_id'),
                 "name": p_t.get('full_name'),
                 "premier_slug": p_t.get('slug'),
                 "fip_slug": fip_t.get('fip_slug'),

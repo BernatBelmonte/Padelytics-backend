@@ -1,17 +1,19 @@
+import sys
+import os
 import json
 import time
-import os
 import re
 from unidecode import unidecode
-import sys
+
 from seleniumwire import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+from typing import List, Dict, Set, Optional, Tuple
 
-# --- CONFIGURATION ---
+# Config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
     PREMIER_PADEL_RESULTS_URL,
@@ -20,28 +22,41 @@ from config import (
 )  
 
 class PremierMatchesScraper:
-    """Scraper for Premier Padel matches data."""
+    """
+    A scraper designed to extract match data from the Premier Padel website. 
+    This class uses SeleniumWire to intercept background API requests triggered 
+    by UI navigation, allowing for clean data extraction without manual HTML parsing.
+    """
 
     def __init__(self,tournaments):
+        """
+        Initializes the scraper with Selenium configuration and tournament slugs.
+        Args:
+            tournaments: A list of tournament dictionaries containing at least the 'premier_slug' key.
+        """
         chrome_options = Options()
         chrome_options.add_argument("--window-size=1920,1080")
         chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--headless") # Keep visible to debug
+        chrome_options.add_argument("--headless")
     
         self.driver = webdriver.Chrome(options=chrome_options)
         self.wait = WebDriverWait(self.driver, 10)
         self.existing_match_ids = []
-        self.tournament_slugs = [t['slug'] for t in tournaments]
+        self.tournament_slugs = [t['premier_slug'] for t in tournaments] # type: ignore
         self.all_matches = [] 
         self.cleaned_matches = []
         self.draw_contestants = {}
         self.qualy_contestants = {}
         self.draw_matches = []
 
-    def run(self):
-        """Main method to start scraping matches."""
-        print("🏓 Premier Padel Matches Scraper")
-        print("==================================")
+    def run(self) -> Tuple[List[Dict], List[str]]:
+        """
+        Main method to execute the scraping process. Iterates through tournament slugs, processes each tournament, and then cleans all matches.
+        Returns:
+            cleaned_matches: A list of dictionaries containing the cleaned match data ready for database insertion.
+            tournaments_id_scraped: A list of tournament slugs that were successfully scraped.
+        """
+        print("📥 Scraping matches...")
         tournaments_id_scraped = []
         try:
             for slug in self.tournament_slugs:
@@ -49,18 +64,26 @@ class PremierMatchesScraper:
                 if success:
                     tournaments_id_scraped.append(slug)
         except Exception as e:
-            print(f"❌ Critical Error: {e}")
+            print(f"    Error: {e}")
         finally:
             self.driver.quit()
+
         self._process_all_matches()
         return self.cleaned_matches, tournaments_id_scraped
 
-    def _process_tournament_slug(self, slug):
+    def _process_tournament_slug(self, slug: str) -> bool:
+        """
+        Processes a single tournament by its slug. This includes fetching draw data, navigating through match days, and extracting match stats.
+        Args:
+            slug: The unique identifier for the tournament on the Premier Padel website.
+        Returns:
+            success: A boolean indicating whether any new matches were enriched for this tournament.
+        """
         print(f"\n📅 TOURNAMENT SLUG: {slug}")
         enriched_count = 0
         try:
             draw_url = f"{PREMIER_PADEL_RESULTS_URL}{slug}/draws" 
-            print(f"   🕷️ Fetching Draw Data from: {draw_url}")
+            print(f"    Fetching Draw Data from: {draw_url}")
             
             del self.driver.requests
             self.driver.get(draw_url)
@@ -90,7 +113,7 @@ class PremierMatchesScraper:
                                 }
                             self.draw_matches.append(match)
                         except Exception as e:
-                            print(f"Could not process match in draw: {e}")
+                            print(f"    Could not process match in draw: {e}")
                 print(f"      ✅ Draw Main Data Captured ({len(self.draw_contestants)} contestants)")
             else:
                 print("      ⚠️ Draw API not found or empty.")
@@ -156,8 +179,8 @@ class PremierMatchesScraper:
             self.driver.get(url)
             time.sleep(3) 
         except Exception as e:
-            print(f"   ❌ Could not load tournament page {slug}: {e}")
-            return
+            print(f"    Could not load tournament page {slug}: {e}")
+            return False
 
         try:
             container = self.wait.until(EC.presence_of_element_located(
@@ -170,7 +193,7 @@ class PremierMatchesScraper:
                 )
             except:
                 print("      ⚠️ Schedule list is empty.")
-                return
+                return False
 
             day_buttons = container.find_elements(By.TAG_NAME, "a")
             
@@ -189,7 +212,7 @@ class PremierMatchesScraper:
                 
                 if not day_text: continue
 
-                print(f"      👉 Clicking Day {index + 1}: {day_text}...", end="")
+                print(f"      👉 Clicking Day {index + 1}: {day_text}...")
 
                 # Scroll into view
                 self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});", button)
@@ -204,24 +227,31 @@ class PremierMatchesScraper:
 
                 aux = self._catch_api_response_tournament_matches()
                 match_ids.extend(aux)
-                print(" Done.")
+
             for match_id in match_ids:
                 del self.driver.requests
                 match_stats = self._get_match_stats(match_id)
+
                 if match_stats:
                     enriched_match = self._merge_names_with_draw(match_stats)
                     if enriched_match['match_score']['tournaments_match_id'] in self.existing_match_ids:
                         print(f"        🔄 Match ID {match_id} already exists. Skipping.")
                         continue
+
                     enriched_count += 1
                     self.all_matches.append(enriched_match)
 
         except Exception as e:
-            print(f"   ❌ Error navigating days: {e}")
+            print(f"    Error navigating days: {e}")
 
         return True if enriched_count > 0 else False
     
-    def _catch_api_response_draw(self):
+    def _catch_api_response_draw(self) -> Optional[Dict]:
+        """
+        Waits for and captures the API response containing draw data. This is triggered when loading the draws page or clicking on the qualification tab.
+        Returns:
+            The parsed JSON data from the API response if found, otherwise None.
+        """
         start_time = time.time()
         while time.time() - start_time < 5:
             for request in reversed(self.driver.requests):
@@ -236,18 +266,30 @@ class PremierMatchesScraper:
             time.sleep(0.2)
         return None
 
-    def _get_match_stats(self, match_id):
+    def _get_match_stats(self, match_id: int) -> Optional[Dict]:
+        """
+        Navigates to the match stats page for a given match ID and captures the API response containing detailed match statistics.
+        Args:
+            match_id: The unique identifier for the match on the Premier Padel website.
+        Returns:
+            A dictionary containing the match statistics if found, otherwise None.
+        """
         print(f"        - Fetching stats for Match ID: {match_id}")
         try:
             url = f"{PREMIER_PADEL_MATCH_STATS_URL}{match_id}"
             self.driver.get(url)
             time.sleep(2) 
         except Exception as e:
-            print(f"   ❌ Could not load matchstats page {match_id}: {e}")
+            print(f"    Could not load matchstats page {match_id}: {e}")
             return
         return self._catch_api_response_match_stats()
 
-    def _catch_api_response_tournament_matches(self):
+    def _catch_api_response_tournament_matches(self) -> List[int]:
+        """
+        Waits for and captures the API response containing the list of matches for a tournament day. This is triggered when clicking on a specific day in the results section.
+        Returns:
+            A list of match IDs extracted from the API response if found, otherwise an empty list.
+        """
         found = False
         start_time = time.time()
         check_repeated = []
@@ -276,7 +318,12 @@ class PremierMatchesScraper:
             time.sleep(0.2)
         return tournament_match_ids
 
-    def _catch_api_response_match_stats(self):
+    def _catch_api_response_match_stats(self) -> Optional[Dict]:
+        """
+        Waits for and captures the API response containing detailed match statistics. This is triggered when navigating to a match stats page.
+        Returns:
+            A dictionary containing the match statistics if found, otherwise None.
+        """
         found = False
         start_time = time.time()
 
@@ -298,14 +345,27 @@ class PremierMatchesScraper:
         if not found:
             print(" ⚠️ No API call (empty month?)")
 
-    def _process_all_matches(self):
+    def _process_all_matches(self) -> None:
+        """
+        Processes all raw matches and cleans them into a standardized format.
+        """
         print("⚙️ Processing matches...")
         for raw_match in self.all_matches:
             cleaned_match = self._clean_single_match(raw_match)
             if cleaned_match:
                 self.cleaned_matches.append(cleaned_match)
 
-    def _clean_single_match(self, raw_match):
+    def _clean_single_match(self, raw_match: Dict) -> Optional[Dict]:
+        """
+        Cleans and standardizes a single raw match dictionary obtained from the API response. This includes:
+        - Extracting and renaming fields for clarity.
+        - Normalizing player names and creating slugs.
+        - Handling missing data and bye matches.
+        Args:
+            raw_match: The original match dictionary as obtained from the API response.
+        Returns:
+            A cleaned and standardized match dictionary ready for database insertion, or None if the match should be skipped (e.g., bye matches).
+        """
         try:
             # Extract Basic Match Info
             raw_match_score = raw_match.get("match_score", {})
@@ -410,10 +470,23 @@ class PremierMatchesScraper:
             return self._prepare_match(cleaned_match)
             
         except Exception as e:
-            print(f"⚠️ Error cleaning match ID {raw_match.get('matchId', 'Unknown')}: {e}")
+            print(f"        Error cleaning match ID {raw_match.get('matchId', 'Unknown')}: {e}")
             return None
+        
     @staticmethod
-    def _prepare_match(match):
+    def _prepare_match(match: Dict) -> Dict:
+        """
+        Prepares the cleaned match dictionary for database insertion by:
+        - Flattening the match_stats into the main dictionary.
+        - Converting winner_team to an integer.
+        - Extracting set scores into separate fields.
+        - Removing any unnecessary fields that won't be stored in the database.
+        Args:
+            match: The cleaned match dictionary containing nested structures and raw data.
+        
+        Returns:
+            A flattened and finalized match dictionary ready for database insertion.
+        """
         stats_columns = [
             "firstset_team1_first_serve_points_won",
             "firstset_team1_first_serve_points_played",
@@ -479,12 +552,33 @@ class PremierMatchesScraper:
         return match
             
     @staticmethod
-    def _normalize(text):
+    def _normalize(text: str) -> Set[str]:
+        """
+        Normalizes a string by:
+        - Converting to lowercase
+        - Removing accents and special characters
+        - Removing commas
+        - Splitting into a set of unique words
+        Args:
+            text: The original string to normalize.
+        Returns:
+            A set of normalized words extracted from the input string.
+        """
         clean = unidecode(str(text)).lower().replace(',', '')
         return set(clean.split())
     
     @staticmethod
-    def _format_slug(name):
+    def _format_slug(name: str) -> str:
+        """
+        Formats a player's name into a slug by:
+        - Normalizing the name (removing accents, converting to lowercase)
+        - Replacing non-alphanumeric characters with hyphens
+        - Stripping leading and trailing hyphens
+        Args:
+            name: The original player name to format.
+        Returns:
+            A slugified version of the player name suitable for consistent identification.
+        """
         if not name: 
             return ""
         # Normalize characters (e.g. ñ -> n, á -> a)
@@ -495,13 +589,29 @@ class PremierMatchesScraper:
         return text.strip('-')
     
     @staticmethod
-    def _check_players(short_players, long_players):
+    def _check_players(short_players: dict, long_players: dict) -> bool:
+        """
+        Checks if the short player names are subsets of the long player names, allowing for either team configuration (T1 vs T2 or T1 vs T2 swapped).
+        Args:
+            short_players: A dictionary containing the normalized player names from the match stats (e.g., {'p1': set(...), 'p2': set(...)}).
+            long_players: A dictionary containing the normalized player names from the draw data (e.g., {'p1': set(...), 'p2': set(...)}).
+        Returns:
+            A boolean indicating whether the short player names match the long player names in either configuration.
+        """
         return (
             (short_players['p1'].issubset(long_players['p1']) and short_players['p2'].issubset(long_players['p2'])) or \
             (short_players['p1'].issubset(long_players['p2']) and short_players['p2'].issubset(long_players['p1']))
         )
 
-    def _merge_names_with_draw(self, match_stats):
+    def _merge_names_with_draw(self, match_stats: Dict) -> Dict:
+        """
+        Merges full player names from the draw data into the match stats.
+        This method attempts to find a match between the normalized player names in the match stats and the normalized player names in the draw data. If a match is found, it enriches the match stats with the full player names from the draw.
+        Args:
+            match_stats: A dictionary containing the match statistics, including normalized player names.
+        Returns:
+            The input match_stats dictionary enriched with full player names from the draw if a match was found, or with None values for full names if no match was found.
+        """
         if not self.draw_matches:
             return match_stats
 
