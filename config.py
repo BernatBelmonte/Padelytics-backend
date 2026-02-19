@@ -22,6 +22,7 @@ PREMIER_PADEL_MATCH_STATS_URL = "https://premierpadel.com/en/matchstats/"
 # ---- FIP configuration constants
 FIP_CALENDAR_URL = "https://www.padelfip.com/calendar-premier-padel/"
 FIP_MEN_RANKING_URL = "https://www.padelfip.com/ranking-male/"
+FIP_MEN_RACE_URL = "https://www.padelfip.com/race-fip-top-100-male/"
 FIP_PLAYER_URL = "https://www.padelfip.com/player/"
 
 # ---- Open Meteo API configuration

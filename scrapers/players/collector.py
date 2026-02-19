@@ -96,7 +96,7 @@ class PlayersCollector:
             players_list: A list of dictionaries containing the static player data to be saved to the database.
         """
         if not players_list:
-            print("No data to save.")
+            print("    No new static player data to save.")
             return
         try:
             self.client.table("players").upsert(players_list, on_conflict="slug").execute()
@@ -111,7 +111,7 @@ class PlayersCollector:
             players_list: A list of dictionaries containing the dynamic player data to be saved to the database.
         """
         if not players_list:
-            print("No data to save.")
+            print("    No dynamic player data to save.")
             return
         try:
             self.client.table("dynamic_players").upsert(players_list, on_conflict="slug, snapshot_date").execute()
