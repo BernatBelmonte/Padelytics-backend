@@ -104,6 +104,8 @@ class TournamentEnricher:
             if lat:
                 weather = self._get_weather_data(lat, lon, start_date, end_date) # type: ignore
                 if weather:
+                    tourney['latitude'] = lat
+                    tourney['longitude'] = lon
                     tourney['altitude'] = weather['altitude']
                     tourney['avg_temperature'] = weather['avg_temperature']
                     tourney['avg_humidity'] = weather['avg_humidity']
@@ -144,6 +146,8 @@ class TournamentEnricher:
                 if lat:
                     weather = self._get_weather_data(lat, lon, start_date, end_date) # type: ignore
                     if weather:
+                        tourney['latitude'] = lat
+                        tourney['longitude'] = lon
                         tourney['altitude'] = weather['altitude']
                         tourney['avg_temperature'] = weather['avg_temperature']
                         tourney['avg_humidity'] = weather['avg_humidity']
