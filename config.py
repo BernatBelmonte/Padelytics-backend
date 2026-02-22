@@ -36,3 +36,10 @@ AVG_PRICE_MONEY = {'Finals': 600000, 'Major': 807900, 'P1': 474500, 'P2': 262250
 
 # ---- Years to Scrape for Premier Padel and FIP
 YEARS_TO_SCRAPE = [2024, 2025, 2026]
+
+# ---- Email Notification Configuration
+EMAIL_SENDER = os.getenv("EMAIL_SENDER", "")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")  # App password for Gmail
+EMAIL_RECIPIENT = os.getenv("EMAIL_RECIPIENT", "")
+EMAIL_SMTP_SERVER = os.getenv("EMAIL_SMTP_SERVER", "smtp.gmail.com")
+EMAIL_SMTP_PORT = int(os.getenv("EMAIL_SMTP_PORT", "587"))
