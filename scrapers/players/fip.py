@@ -10,11 +10,15 @@ from time import sleep
 
 from typing import Any, List, Dict, Optional, Tuple
 
+from supabase import create_client, Client
+
 # Config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
     USER_AGENT,
-    FIP_MEN_RANKING_URL
+    FIP_MEN_RANKING_URL,
+    SUPABASE_URL,
+    SUPABASE_KEY
 )  
 
 class FipPlayerScraper:
@@ -32,6 +36,7 @@ class FipPlayerScraper:
         self.players: List[Dict] = []
         self.headers = {'User-Agent': USER_AGENT}
         self.session: requests.Session = self._create_robust_session()
+        self.supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
     def run(self, last_scraped_day: Optional[datetime]) -> Tuple[List[Dict], List[Dict]]:
         """
@@ -185,6 +190,9 @@ class FipPlayerScraper:
             updated_day = datetime.strptime(updated_day, "%d/%m/%Y").strftime("%Y-%m-%d")
         data['updated_day'] = updated_day
 
+        overall_position_tag = soup.select_one('.slider__number.player__number')
+        data['overall_position'] = overall_position_tag.get_text(strip=True) if overall_position_tag else None
+
         points_tag = soup.select_one('.slider__pointTNumber.player__pointTNumber')
         data['points'] = points_tag.get_text(strip=True) if points_tag else None
         
@@ -234,7 +242,7 @@ class FipPlayerScraper:
         If any field contains invalid data (like "-", "N/A", etc.), it sets it to None (or 0 for titles).
         """
         int_fields = ["points", "matches_played", "matches_won", "matches_lost",
-                          "consecutive_victories", "titles", "race_position"]
+                          "consecutive_victories", "titles", "overall_position"]
         numeric_fields = ["effectiveness", "height"]
         
         for player in self.players:
@@ -275,7 +283,6 @@ class FipPlayerScraper:
             "Cons. victories": "consecutive_victories",
             "Effectiveness": "effectiveness",
             "Titles": "titles",
-            "Race": "race_position"
         }
 
         for label, key in mapping.items():
@@ -313,27 +320,58 @@ class FipPlayerScraper:
             static_players.append(static_data)
         return static_players
 
+    def _fetch_previous_player_stat(self, slug: str) -> Optional[Dict]:
+        """
+        Fetches the most recent previous statistics for a given player before a specified date.
+        Args:
+            slug: The player's unique slug identifier.
+            date_str: The cutoff date (in "YYYY-MM-DD" format) for fetching previous statistics.
+        Returns:
+            A dictionary containing the most recent previous statistics for the player, or None if no such record exists.
+        """
+        try:
+            res = self.supabase.table("dynamic_players").select("*")\
+                .eq("slug", slug)\
+                .order("snapshot_date", desc=True).limit(1).execute()
+            return res.data[0] if res.data else None  # type: ignore
+        except Exception as e:
+            print(f"Error fetching previous stats for player {slug}: {e}")
+            return None
+
     def _prepare_dynamic_players(self) -> List[Dict]:
         """
         Prepares the dynamic player data for storage by extracting relevant fields and structuring them in a consistent format.
-        Only players with more than 0 points are included in the output.
         Returns:
             A list of dictionaries, each containing the dynamic data for a player.
         """
         dynamic_players = []
         for player in self.players:
-            if player['points'] is not None and player['points'] > 0:
+                current_ranking = player['overall_position']
+                
+                # Fetch previous stats to calculate ranking change
+                prev_snapshot = self._fetch_previous_player_stat(player['slug'])
+                
+                if prev_snapshot:
+                    prev_ranking = prev_snapshot.get('ranking_position')
+                    if prev_ranking is not None and current_ranking is not None:
+                        ranking_change = prev_ranking - current_ranking  # Positive means improved
+                    else:
+                        ranking_change = None
+                else:
+                    ranking_change = None
+                
                 dynamic_data = {
                     "slug": player['slug'],
                     "snapshot_date": player['updated_day'],
                     "points": player['points'],
+                    "ranking_position": current_ranking,
+                    "ranking_change": ranking_change,
                     "matches_played": player.get('matches_played') or 0,
                     "matches_won": player.get('matches_won') or 0,
                     "matches_lost": player.get('matches_lost') or 0,
                     "consecutive_victories": player.get('consecutive_victories') or 0,
                     "effectiveness": player.get('effectiveness') or 0.0,
                     "titles": player.get('titles') or 0,
-                    "race_position": player.get('race_position'),
                     "paired_with_slug": player['current_pair'],
                 }
                 dynamic_players.append(dynamic_data)

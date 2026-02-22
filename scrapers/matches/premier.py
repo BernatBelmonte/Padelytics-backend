@@ -371,8 +371,8 @@ class PremierMatchesScraper:
             raw_match_score = raw_match.get("match_score", {})
             if raw_match_score.get("is_bye") == "Yes" or (not raw_match_score.get("team_1_p1_full_name") or not raw_match_score.get("team_2_p1_full_name") or not raw_match_score.get("team_1_p2_full_name") or not raw_match_score.get("team_2_p2_full_name")):
                 return None  # Skip bye matches
-            team1_slug = '/'.join(sorted([raw_match_score.get("team_1_p1_full_name"), raw_match_score.get("team_1_p2_full_name")]))
-            team2_slug = '/'.join(sorted([raw_match_score.get("team_2_p1_full_name"), raw_match_score.get("team_2_p2_full_name")]))
+            team1_slug = '--'.join(sorted([raw_match_score.get("team_1_p1_full_name"), raw_match_score.get("team_1_p2_full_name")]))
+            team2_slug = '--'.join(sorted([raw_match_score.get("team_2_p1_full_name"), raw_match_score.get("team_2_p2_full_name")]))
             cleaned_match = {
                 "tournaments_match_id": raw_match_score.get("tournaments_match_id"),
                 "tournament_id": raw_match_score.get("tournaments_id"),

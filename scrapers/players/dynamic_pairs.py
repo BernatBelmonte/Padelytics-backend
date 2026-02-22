@@ -50,13 +50,27 @@ class DynamicPairsProcessor:
 
         leader_points = max(p['points'] for p in pairs_data.values())
         
+        # Sort pairs by points descending to assign rankings
+        sorted_pairs = sorted(pairs_data.items(), key=lambda x: x[1]['points'], reverse=True)
+        pair_rankings = {pair_slug: rank + 1 for rank, (pair_slug, _) in enumerate(sorted_pairs)}
+        
         final_payload = []
         for pair_slug, base_info in pairs_data.items():
             print(f"    📈 Processing {pair_slug}...")
 
+            # Life cycle management: Identify if this is a new pair, a continuing pair, or a reunion after a breakup
+            p1_slug, p2_slug = pair_slug.split('--')
+            success = self._update_pair_lifecycle(pair_slug, p1_slug, p2_slug, snapshot_date_str)
+
+            if not success:
+                continue
+
             matches = self._fetch_pair_matches(pair_slug, snapshot_date_str)
+            print(f"        Found {len(matches)} matches for {pair_slug} from 1 year back until {snapshot_date_str}.")
             prev_snapshot = self._fetch_previous_pair_stat(pair_slug, snapshot_date_str)
             kpis = self._calculate_advanced_kpis(pair_slug, matches, snapshot_date_str)
+            
+            current_ranking = pair_rankings[pair_slug]
             
             record = {
                 "pair_slug": pair_slug,
@@ -64,19 +78,66 @@ class DynamicPairsProcessor:
                 "points": base_info['points'],
                 "points_behind_leader": leader_points - base_info['points'],
                 "is_number_one": base_info['is_no1'],
+                "ranking": current_ranking,
                 **kpis
             }
 
             if prev_snapshot:
                 record["points_change"] = int(base_info['points'] - prev_snapshot.get('points', 0)) # type: ignore
                 record["is_new_pair"] = False
+                prev_ranking = prev_snapshot.get('ranking')
+                if prev_ranking is not None:
+                    record["ranking_change"] = prev_ranking - current_ranking  # Positive means improved
+                else:
+                    record["ranking_change"] = None
             else:
                 record["points_change"] = None
                 record["is_new_pair"] = True
+                record["ranking_change"] = None
 
             final_payload.append(record)
 
         return final_payload
+
+
+    def _update_pair_lifecycle(self, pair_slug: str, p1: str, p2: str, snapshot_date: str) -> bool:
+        """
+        Updates the lifecycle status of a player pair in the pairs table.
+        This method checks if the pair is new, continuing, or a reunion after a breakup. It updates the is_active status and timestamps accordingly.
+        Args:
+            pair_slug: A string representing the slug of the player pair (formatted as "player1--player2") for which to update lifecycle status.
+            p1: A string representing the slug of the first player in the pair.
+            p2: A string representing the slug of the second player in the pair.
+            snapshot_date: A string representing the snapshot date for which the lifecycle status is being updated, in the format "YYYY-MM-DD".
+        Returns:
+            A boolean value indicating whether the lifecycle update was successful.
+        """
+        try:
+            self.supabase.table("pairs")\
+                .update({"is_active": False, "broken_up_at": snapshot_date})\
+                .or_(f"player1_slug.eq.{p1},player2_slug.eq.{p1},player1_slug.eq.{p2},player2_slug.eq.{p2}")\
+                .neq("pair_slug", pair_slug)\
+                .execute()
+
+            self.supabase.table("pairs").upsert({
+                "pair_slug": pair_slug,
+                "player1_slug": p1,
+                "player2_slug": p2,
+                "is_active": True,
+                "broken_up_at": None,
+                "started_at": snapshot_date
+            }, on_conflict="pair_slug").execute()
+            
+            return True
+
+        except Exception as e:
+            if "foreign key" in str(e).lower():
+                print(f"      ⚠️  SKIPING {pair_slug}: One of the players doesn't exist in 'static_players'.")
+                return False
+            else:
+                raise e
+
+
 
     def _identify_pairs(self, players: List[Dict]) -> Dict[str, Dict]:
         """
@@ -84,7 +145,7 @@ class DynamicPairsProcessor:
         Args:
             players: A list of dictionaries containing player data
         Returns:
-            A dictionary where the keys are pair slugs (formatted as "player1/player2") and the values are dictionaries containing the combined points and number one status of the pair.
+            A dictionary where the keys are pair slugs (formatted as "player1--player2") and the values are dictionaries containing the combined points and number one status of the pair.
         """
         pairs = {}
         processed_slugs = set()
@@ -95,14 +156,14 @@ class DynamicPairsProcessor:
             if not partner or slug in processed_slugs: continue
 
             # Canonical slug (Alphabetical)
-            pair_slug = "/".join(sorted([slug, partner]))
+            pair_slug = "--".join(sorted([slug, partner]))
             if partner not in [pl['slug'] for pl in players]: continue  # Skip if partner data is missing
             partner_data = next((x for x in players if x['slug'] == partner), None)
             total_pts = p.get('points', 0) + (partner_data.get('points', 0) if partner_data else 0)
             
             pairs[pair_slug] = {
                 "points": total_pts,
-                "is_no1": p['race_position'] == 1 or (partner_data and partner_data.get('race_position') == 1)
+                "is_no1": p['ranking_position'] == 1 or (partner_data and partner_data.get('ranking_position') == 1)
             }
             processed_slugs.update([slug, partner])
         return pairs
@@ -111,7 +172,7 @@ class DynamicPairsProcessor:
     def _fetch_pair_matches(self, pair_slug: str, date_str: str) -> List[Dict]:
         """
         Fetches the match history for a given player pair from back util a year up until a specified date.
-            pair_slug: A string representing the slug of the player pair (formatted as "player1/player2") for which to fetch match history.
+            pair_slug: A string representing the slug of the player pair (formatted as "player1--player2") for which to fetch match history.
             date_str: A string representing the cutoff date (in "YYYY-MM-DD" format) for fetching matches, ensuring that only matches before this date are included in the results.
         Returns:
             A list of dictionaries containing the match data for the specified player pair, including details such as match date, tournament, round, and scores.
@@ -144,7 +205,7 @@ class DynamicPairsProcessor:
         """
         Fetches the most recent previous statistics for a given player pair before a specified date. 
         Args:
-            pair_slug: A string representing the slug of the player pair (formatted as "player1/player2") for which to fetch previous statistics.
+            pair_slug: A string representing the slug of the player pair (formatted as "player1--player2") for which to fetch previous statistics.
             date_str: A string representing the cutoff date (in "YYYY-MM-DD" format) for fetching previous statistics, ensuring that only records with a snapshot date before this date are considered.
         Returns:
             A dictionary containing the most recent previous statistics for the specified player pair, or None if no such record exists in the database.
@@ -161,7 +222,7 @@ class DynamicPairsProcessor:
         The KPIs include performance metrics such as win percentage, dominance ratio, form guide, and more, 
         providing a detailed analysis of the pair's performance over time.
         Args:
-            pair_slug: A string representing the slug of the player pair (formatted as "player1/player2") for which to calculate KPIs.
+            pair_slug: A string representing the slug of the player pair (formatted as "player1--player2") for which to calculate KPIs.
             matches: A list of dictionaries containing the match history for the player pair, including details such as match date, tournament, round, and scores.
             snapshot_date_str: A string representing the snapshot date for which the KPIs are being calculated, in the format "YYYY-MM-DD".
         Returns:
@@ -201,19 +262,20 @@ class DynamicPairsProcessor:
         tournament_max_weights = {}
 
         # Sort matches by date first
-        sorted_matches = sorted(match_dates)
-        stint_start = sorted_matches[0]
+        sorted_matches = sorted(matches, key=lambda x: x['date'])
+        stint_start = sorted_matches[0]['date'].split(' ')[0]
+        stint_start = datetime.strptime(stint_start, "%Y-%m-%d") # Initialize stint start to the date of the first match in the sorted list
 
         # Define what counts as a "breakup" (e.g., 6 months of no matches)
         GAP_THRESHOLD = 180 
 
-        for i, m in enumerate(matches):
+        for i, m in enumerate(sorted_matches):
             is_team1 = m['team1_slug'] == pair_slug
             # Whether the pair won the match
             won_match = (is_team1 and m['winner_team'] == 1) or (not is_team1 and m['winner_team'] == 2)
 
             current_match = m['date'].split(' ')[0] # Ensure date is in "YYYY-MM-DD" format
-            previous_match = matches[i-1]['date'].split(' ')[0] if i > 0 else current_match
+            previous_match = sorted_matches[i-1]['date'].split(' ')[0] if i > 0 else current_match
             current_match = datetime.strptime(current_match, "%Y-%m-%d")
             previous_match = datetime.strptime(previous_match, "%Y-%m-%d")
             if (current_match - previous_match).days > GAP_THRESHOLD:
@@ -229,7 +291,7 @@ class DynamicPairsProcessor:
                 stats["streak_numeric"] = streak_val if first_match_won else -streak_val
 
             if won_match: wins += 1
-            if len(matches) - i <= 10: form.append("W" if won_match else "L")
+            if len(sorted_matches) - i <= 10: form.append("W" if won_match else "L")
             
             if m['round_name'] == 'Men F':
                 finals_played += 1
@@ -297,7 +359,8 @@ class DynamicPairsProcessor:
 
         if match_dates:
             today = datetime.now()
-            latest_match = max(match_dates)
+            latest_match = max(sorted_matches, key=lambda x: x['date'])['date']
+            latest_match = datetime.strptime(latest_match.split(' ')[0], "%Y-%m-%d")
             
             stats["partnership_time_days"] = (today - stint_start).days
             stats["days_since_last_match"] = (today - latest_match).days
