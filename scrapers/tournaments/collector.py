@@ -86,7 +86,7 @@ class TournamentsCollector:
             A list of dictionaries containing all tournaments with their FIP slug, Premier slug, matches scraped, and enrichment status.
         """
         try:
-            res = self.client.table("tournaments").select("fip_slug, premier_slug, matches_scraped, is_enriched").execute()
+            res = self.client.table("tournaments").select("*").execute()
             return res.data if res.data else [] # type: ignore
         except Exception as e:
             print(f"Error fetching all tournaments: {e}")
@@ -113,7 +113,7 @@ class TournamentsCollector:
         
     def _save_tournaments(self, tournaments_list: List[Dict]) -> None:
         """
-        Saves the enriched tournament data to the Supabase database using an upsert operation. This method takes a list of tournament dictionaries and attempts to insert them into the "tournaments" table. If a tournament with the same FIP slug and Premier slug already exists, it will be updated with the new data instead of creating a duplicate entry. This ensures that the database remains clean and up-to-date with the latest information.
+        Saves the enriched tournament data to the Supabase database using an upsert operation. This method takes a list of tournament dictionaries and attempts to insert them into the "tournaments" table. If a tournament with the same ID already exists, it will be updated with the new data instead of creating a duplicate entry. This ensures that the database remains clean and up-to-date with the latest information.
         
         Args:
             tournaments_list: A list of dictionaries containing the enriched tournament data to be saved to the database.
@@ -123,7 +123,7 @@ class TournamentsCollector:
             return
         print(f"💾 Saving {len(tournaments_list)} tournaments to Supabase...")
         try:
-            self.client.table("tournaments").upsert(tournaments_list, on_conflict="premier_slug, fip_slug").execute()
+            self.client.table("tournaments").upsert(tournaments_list, on_conflict="id").execute()
             print("    Database synchronization complete.")
         except Exception as e:
             print(f"Error in DB Upsert: {e}")

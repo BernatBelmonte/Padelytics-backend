@@ -129,13 +129,30 @@ class TournamentEnricher:
             A dictionary representing the updated enriched tournament data, ready for update in the database.
         """
         tourney = {
+            "id": ext_t.get('id'),
+            "name": ext_t.get('name'),
             "premier_slug": ext_t.get('premier_slug'),
             "fip_slug": ext_t.get('fip_slug'),
+            "season": ext_t.get('season'),
+            "city": ext_t.get('city'),
+            "country": ext_t.get('country'),
+            "country_code": ext_t.get('country_code'),
             "venue": ext_t.get('venue') or p_t.get('club') or fip_t.get('venue'),
+            "start_date": ext_t.get('start_date'),
+            "end_date": ext_t.get('end_date'),
             "status": p_t.get('tournaments_type'),
+            "tournament_level": ext_t.get('tournament_level'),
             "prize_money": self._clean_prize_money(p_t.get('prize_money') or fip_t.get('prize_money') or ext_t.get('prize_money')),
             "balls_used": ext_t.get('balls_used') or fip_t.get('balls_used'),
             "venue_type": ext_t.get('venue_type') or fip_t.get('venue_type'),
+            "is_enriched": ext_t.get('is_enriched', False),
+            "matches_scraped": ext_t.get('matches_scraped', False),
+            "latitude": ext_t.get('latitude'),
+            "longitude": ext_t.get('longitude'),
+            "altitude": ext_t.get('altitude'),
+            "avg_temperature": ext_t.get('avg_temperature'),
+            "avg_humidity": ext_t.get('avg_humidity'),
+            "court_speed_index": ext_t.get('court_speed_index')
         }
 
         if not ext_t.get('is_enriched'):
