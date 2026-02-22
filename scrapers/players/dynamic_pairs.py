@@ -58,13 +58,6 @@ class DynamicPairsProcessor:
         for pair_slug, base_info in pairs_data.items():
             print(f"    📈 Processing {pair_slug}...")
 
-            # Life cycle management: Identify if this is a new pair, a continuing pair, or a reunion after a breakup
-            p1_slug, p2_slug = pair_slug.split('--')
-            success = self._update_pair_lifecycle(pair_slug, p1_slug, p2_slug, snapshot_date_str)
-
-            if not success:
-                continue
-
             matches = self._fetch_pair_matches(pair_slug, snapshot_date_str)
             print(f"        Found {len(matches)} matches for {pair_slug} from 1 year back until {snapshot_date_str}.")
             prev_snapshot = self._fetch_previous_pair_stat(pair_slug, snapshot_date_str)
@@ -98,46 +91,6 @@ class DynamicPairsProcessor:
             final_payload.append(record)
 
         return final_payload
-
-
-    def _update_pair_lifecycle(self, pair_slug: str, p1: str, p2: str, snapshot_date: str) -> bool:
-        """
-        Updates the lifecycle status of a player pair in the pairs table.
-        This method checks if the pair is new, continuing, or a reunion after a breakup. It updates the is_active status and timestamps accordingly.
-        Args:
-            pair_slug: A string representing the slug of the player pair (formatted as "player1--player2") for which to update lifecycle status.
-            p1: A string representing the slug of the first player in the pair.
-            p2: A string representing the slug of the second player in the pair.
-            snapshot_date: A string representing the snapshot date for which the lifecycle status is being updated, in the format "YYYY-MM-DD".
-        Returns:
-            A boolean value indicating whether the lifecycle update was successful.
-        """
-        try:
-            self.supabase.table("pairs")\
-                .update({"is_active": False, "broken_up_at": snapshot_date})\
-                .or_(f"player1_slug.eq.{p1},player2_slug.eq.{p1},player1_slug.eq.{p2},player2_slug.eq.{p2}")\
-                .neq("pair_slug", pair_slug)\
-                .execute()
-
-            self.supabase.table("pairs").upsert({
-                "pair_slug": pair_slug,
-                "player1_slug": p1,
-                "player2_slug": p2,
-                "is_active": True,
-                "broken_up_at": None,
-                "started_at": snapshot_date
-            }, on_conflict="pair_slug").execute()
-            
-            return True
-
-        except Exception as e:
-            if "foreign key" in str(e).lower():
-                print(f"      ⚠️  SKIPING {pair_slug}: One of the players doesn't exist in 'static_players'.")
-                return False
-            else:
-                raise e
-
-
 
     def _identify_pairs(self, players: List[Dict]) -> Dict[str, Dict]:
         """
