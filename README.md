@@ -6,7 +6,7 @@ Automated ETL pipeline for professional padel data. Scrapes player rankings, tou
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Daily Runner                              │
+│                        Daily Runner                             │
 │         (Executes scheduled tasks from scraper_tasks)           │
 └─────────────────────────────────────────────────────────────────┘
                                 │
