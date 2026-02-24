@@ -126,7 +126,7 @@ class DailyRunner:
             self.client.table("scraper_tasks").update({
                 "status": status,
                 "log": log,
-                "executed_at": datetime.now().isoformat()
+                "updated_at": datetime.now().isoformat()
             }).eq("id", task_id).execute()
         except Exception as e:
             print(f"    ⚠️  Failed to update task status: {e}")
