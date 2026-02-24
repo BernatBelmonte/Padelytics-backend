@@ -2,6 +2,7 @@ import os
 import sys
 import requests
 from datetime import datetime
+from collections import defaultdict
 from supabase import create_client, Client
 from typing import List, Dict, Optional
 
@@ -53,6 +54,9 @@ class PlayersCollector:
         # 3. Process dynamic pairs and save to DB
         snapshot_date: str = dynamic_players[0]['snapshot_date']
         pairs_data: List[Optional[Dict]] = DynamicPairsProcessor().run(dynamic_players, snapshot_date)
+        # Clean up conflicting pairs where a player appears in multiple teams at the same time
+        # and remove the records for teams with 0 matches played.
+        pairs_data = self._remove_conflicting_zero_match_pairs(pairs_data)  # type: ignore[arg-type]
         self._save_dynamic_pairs(pairs_data)
 
     def _get_last_snapshot_date(self) -> Optional[datetime]:
@@ -118,6 +122,72 @@ class PlayersCollector:
             print("    Database synchronization complete.")
         except Exception as e:
             print(f"Error in DB Upsert: {e}")
+
+    def _remove_conflicting_zero_match_pairs(self, pairs_list: List[Dict]) -> List[Dict]:
+        """Remove dynamic pair records where a player belongs to multiple teams at the same
+        snapshot time and one of those teams has 0 matches played.
+
+        Given an input list of dynamic pair records (each containing at least
+        'pair_slug', 'player1_slug', 'player2_slug', 'snapshot_date', and
+        'matches_played'), this function:
+
+        - Detects players that appear in more than one pair for the same snapshot_date.
+        - For those conflicts, discards any record where 'matches_played' == 0.
+        - Keeps all other records intact.
+
+        If all conflicting teams for a player have matches_played > 0, no
+        records are removed for that player.
+        """
+        if not pairs_list:
+            return pairs_list
+
+        # Index records by (pair_slug, snapshot_date) so we can uniquely
+        # identify them even if the same pair appears in multiple snapshots.
+        indexed_pairs = {}
+        for rec in pairs_list:
+            key = (rec.get("pair_slug"), rec.get("snapshot_date"))
+            indexed_pairs[key] = rec
+
+        # Map each player and snapshot to the list of pair keys they belong to.
+        player_snapshot_to_pairs: Dict[tuple, List[tuple]] = defaultdict(list)
+        for key, rec in indexed_pairs.items():
+            pair_slug, snapshot_date = key
+            player1 = rec.get("player1_slug")
+            player2 = rec.get("player2_slug")
+            if snapshot_date is None:
+                # If snapshot_date is missing, we can't reliably compare "same time".
+                continue
+            if player1:
+                player_snapshot_to_pairs[(player1, snapshot_date)].append(key)
+            if player2:
+                player_snapshot_to_pairs[(player2, snapshot_date)].append(key)
+
+        keys_to_remove = set()
+
+        for (player, snapshot_date), pair_keys in player_snapshot_to_pairs.items():
+            # We only care about players that are in more than one team
+            if len(set(pair_keys)) <= 1:
+                continue
+
+            # Among the conflicting teams, mark those with 0 matches played for removal
+            for key in set(pair_keys):
+                rec = indexed_pairs.get(key)
+                if rec is None:
+                    continue
+                matches_played = rec.get("matches_played", 0)
+                if isinstance(matches_played, int) and matches_played == 0:
+                    keys_to_remove.add(key)
+
+        if not keys_to_remove:
+            return pairs_list
+
+        filtered = [rec for key, rec in indexed_pairs.items() if key not in keys_to_remove]
+
+        removed_count = len(keys_to_remove)
+        if removed_count:
+            print(f"    Removed {removed_count} conflicting pair record(s) with 0 matches played.")
+
+        return filtered
 
     def _load_static_players(self) -> List[str]:
         """

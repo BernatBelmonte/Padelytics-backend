@@ -67,6 +67,8 @@ class DynamicPairsProcessor:
             
             record = {
                 "pair_slug": pair_slug,
+                "player1_slug": pair_slug.split("--")[0],
+                "player2_slug": pair_slug.split("--")[1],
                 "snapshot_date": snapshot_date_str,
                 "points": base_info['points'],
                 "points_behind_leader": leader_points - base_info['points'],
@@ -116,7 +118,7 @@ class DynamicPairsProcessor:
             
             pairs[pair_slug] = {
                 "points": total_pts,
-                "is_no1": p['ranking_position'] == 1 or (partner_data and partner_data.get('ranking_position') == 1)
+                "is_no1": p['ranking_position'] == 1 or (partner_data and partner_data.get('ranking_position') == 1),
             }
             processed_slugs.update([slug, partner])
         return pairs
