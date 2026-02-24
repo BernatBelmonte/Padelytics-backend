@@ -1,25 +1,124 @@
-# Padelytics Data Engine - ETL & Scraper Pipeline
+# Padelytics Data Engine
 
-This is the core data ingestion system for VoleAI. It manages the automated lifecycle of professional padel data, from raw web scraping to structured storage in Supabase.
+Automated ETL pipeline for professional padel data. Scrapes player rankings, tournament info, and match statistics from Premier Padel and FIP sources, storing everything in Supabase.
 
-## Key Features
-### 1. Automated Task Scheduler
-A calendar-driven logic that populates a `scheduled_tasks` table:
-* **Players Scraper**: Triggered **3 days before** tournament start.
-* **Tournaments Scraper**: Triggered **1 day before** tournament start (Syncs categories/locations).
-* **Matches Scraper**: Triggered **3 days after** tournament end (Collects final results and 70+ performance metrics).
+## Architecture
 
-### 2. Data Enrichment
-* **ArcGIS Geocoding**: Automatically converts city/country strings into Latitude/Longitude coordinates for map visualizations.
-* **is_enriched Flag**: A boolean system to track which tournament records have been fully processed.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Daily Runner                              │
+│         (Executes scheduled tasks from scraper_tasks)           │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+┌───────────────┐      ┌───────────────┐      ┌───────────────┐
+│    Players    │      │  Tournaments  │      │    Matches    │
+│   Collector   │      │   Collector   │      │   Collector   │
+└───────────────┘      └───────────────┘      └───────────────┘
+        │                       │                       │
+        ▼                       ▼                       ▼
+┌────────────────┐      ┌───────────────┐      ┌───────────────┐
+│  FIP Scraper   │      │  FIP + Premier│      │Premier Scraper│
+│ + Dynamic Pairs│      │  + Enricher   │      │               │
+└────────────────┘      └───────────────┘      └───────────────┘
+                                │
+                    ┌───────────┴───────────┐
+                    │   Data Enrichment     │
+                    │ • ArcGIS Geocoding    │
+                    │ • Weather Data        │
+                    │ • Court Speed Index   │
+                    └───────────────────────┘
+```
 
-## Scraper Modules
+## Usage
 
-| Scraper | Data Collected | Frequency |
-| :--- | :--- | :--- |
-| **Players** | Rank, points, age, hand, profile, and history. | Pre-Tournament |
-| **Matches** | Winners, unforced errors, break points, set scores (10+ metrics). | Post-Tournament |
-| **Tournaments** | Dates, categories (P1, P2, Major), city, and coordinates. | On Demand / Seasonal |
+### Schedule Tasks (Run Once Per Season)
 
-## Known Issue Fixes
-* **Status 509 (Geopy)**: Switched from Nominatim to **ArcGIS** to avoid strict bandwidth limits and IP bans.
+```bash
+python -c "from utils.scrapers_scheduler import ScrapersScheduler; ScrapersScheduler().run()"
+```
+
+This populates the `scraper_tasks` table with:
+- **Players**: 1 day before tournament + every Tuesday (skips tournament periods)
+- **Tournaments**: 1 day before start + 2 days after end
+- **Matches**: 3 days after tournament ends
+
+### Run Daily Tasks
+
+```bash
+python daily_runner.py
+```
+
+Executes all tasks scheduled for today and sends an email summary.
+
+### Run Individual Collectors
+
+```bash
+# Players
+python -c "from scrapers.players.collector import PlayersCollector; PlayersCollector().start()"
+
+# Tournaments
+python -c "from scrapers.tournaments.collector import TournamentsCollector; TournamentsCollector().start()"
+
+# Matches
+python -c "from scrapers.matches.collector import MatchesCollector; MatchesCollector().start()"
+```
+
+## Project Structure
+
+```
+├── config.py                 # Environment & constants
+├── daily_runner.py           # Task executor + email 
+├── scrapers/
+│   ├── players/
+│   │   ├── collector.py      # Orchestrates player data pipeline
+│   │   ├── fip.py            # FIP ranking scraper
+│   │   └── dynamic_pairs.py  # Player partnership analysis
+│   ├── tournaments/
+│   │   ├── collector.py      # Orchestrates tournament pipeline
+│   │   ├── fip.py            # FIP calendar scraper
+│   │   ├── premier.py        # Premier Padel scraper
+│   │   └── enricher.py       # Geocoding + weather enrichment
+│   └── matches/
+│       ├── collector.py      # Orchestrates match pipeline
+│       └── premier.py        # Match stats scraper (70+ metrics)
+└── utils/
+    └── scrapers_scheduler.py # Season task scheduling logic
+```
+
+## Data Sources
+
+| Source | Data | URL |
+|--------|------|-----|
+| FIP | Rankings, Player Profiles | padelfip.com |
+| Premier Padel | Tournaments, Match Stats | premierpadel.com |
+| Open-Meteo | Historical Weather | open-meteo.com |
+| ArcGIS | Geocoding | arcgis.com |
+
+## Scheduling Logic
+
+The scheduler intelligently avoids redundant scraping:
+
+1. **Tournament-based scheduling**: Players scraper runs 1 day before each tournament
+2. **Weekly maintenance**: Players also run every Tuesday to catch ranking changes
+3. **Conflict avoidance**: Tuesday scrapes are skipped if they fall within a tournament period (start date to 3 days after end)
+
+## Database Tables
+
+| Table | Purpose |
+|-------|---------|
+| `tournaments` | Tournament metadata, dates, locations, coordinates |
+| `players` | Static player info (name, country, hand, image) |
+| `players_dynamic` | Snapshots of rankings/points over time |
+| `matches` | Match results with detailed statistics |
+| `scraper_tasks` | Scheduled task queue with status tracking |
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Geopy 509 errors | Already mitigated - uses ArcGIS instead of Nominatim |
+| Empty scraper results | Verify source websites haven't changed structure |
+
+## License
