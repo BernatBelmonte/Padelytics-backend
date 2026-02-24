@@ -111,6 +111,7 @@ The scheduler intelligently avoids redundant scraping:
 | `tournaments` | Tournament metadata, dates, locations, coordinates |
 | `players` | Static player info (name, country, hand, image) |
 | `players_dynamic` | Snapshots of rankings/points over time |
+| `pairs_dynamic` | Snapshots of rankings, points and lots of statistics over time |
 | `matches` | Match results with detailed statistics |
 | `scraper_tasks` | Scheduled task queue with status tracking |
 
