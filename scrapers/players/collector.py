@@ -124,7 +124,8 @@ class PlayersCollector:
             print(f"Error in DB Upsert: {e}")
 
     def _remove_conflicting_zero_match_pairs(self, pairs_list: List[Dict]) -> List[Dict]:
-        """Remove dynamic pair records where a player belongs to multiple teams at the same
+        """
+        Remove dynamic pair records where a player belongs to multiple teams at the same
         snapshot time and one of those teams has 0 matches played.
 
         Given an input list of dynamic pair records (each containing at least
@@ -137,12 +138,16 @@ class PlayersCollector:
 
         If all conflicting teams for a player have matches_played > 0, no
         records are removed for that player.
+
+        Args:
+            pairs_list: A list of dictionaries representing dynamic pair records to be processed.
+        Returns:
+            A filtered list of dynamic pair records with conflicting zero-match teams removed.
         """
         if not pairs_list:
             return pairs_list
 
-        # Index records by (pair_slug, snapshot_date) so we can uniquely
-        # identify them even if the same pair appears in multiple snapshots.
+        # Index records by (pair_slug, snapshot_date)
         indexed_pairs = {}
         for rec in pairs_list:
             key = (rec.get("pair_slug"), rec.get("snapshot_date"))
@@ -155,7 +160,6 @@ class PlayersCollector:
             player1 = rec.get("player1_slug")
             player2 = rec.get("player2_slug")
             if snapshot_date is None:
-                # If snapshot_date is missing, we can't reliably compare "same time".
                 continue
             if player1:
                 player_snapshot_to_pairs[(player1, snapshot_date)].append(key)
@@ -185,7 +189,7 @@ class PlayersCollector:
 
         removed_count = len(keys_to_remove)
         if removed_count:
-            print(f"    Removed {removed_count} conflicting pair record(s) with 0 matches played.")
+            print(f"    Removed {removed_count} conflicting pair records with 0 matches played.")
 
         return filtered
 

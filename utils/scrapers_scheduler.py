@@ -27,17 +27,18 @@ class ScrapersScheduler:
         print("🚀 STARTING Scrapers Scheduler")
         print("===============================")
         tournaments: List[Dict] = self._get_upcoming_tournaments()
+        now = datetime.now()
+
         for tournament in tournaments:
-            tournament_id = tournament['tournaments_id']
+            tournament_id = tournament['id']
             start_date_str = tournament['start_date']
             end_date_str = tournament['end_date']
 
             start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
             end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
-            now = datetime.now()
 
-            # Schedule Players Scraper 3 days before the tournament starts
-            players_scraper_time = start_date - timedelta(days=3)
+            # Schedule Players Scraper 1 days before the tournament starts
+            players_scraper_time = start_date - timedelta(days=1)
             if players_scraper_time > now:
                 self.scheduled_tasks.append({
                     "task_type": "players",
@@ -67,8 +68,8 @@ class ScrapersScheduler:
                     "log": None
                 })
 
-            # Schedule Tournament Scraper 1 day after the tournament ends to update the status to finished
-            finished_scraper_time = end_date + timedelta(days=1)
+            # Schedule Tournament Scraper 2 day after the tournament ends to update the status to finished
+            finished_scraper_time = end_date + timedelta(days=2)
             if finished_scraper_time > now:
                 self.scheduled_tasks.append({
                     "task_type": "tournaments",
@@ -76,6 +77,28 @@ class ScrapersScheduler:
                     "tournament_id": tournament_id,
                     "log": None
                 })
+
+        tournament_ranges = []
+        for tournament in tournaments:
+            start_date = datetime.strptime(tournament['start_date'], "%Y-%m-%d")
+            end_date = datetime.strptime(tournament['end_date'], "%Y-%m-%d") + timedelta(days=3)  # Extend end date by 3 days to cover matches scraper period
+            tournament_ranges.append((start_date, end_date))
+
+        # Plus we will scrap players once a week too. From now to the end of the year, every Tuesday.
+        # Skip Tuesdays that fall within a tournament date range (players already run 1 days before)
+        next_tuesday = now + timedelta(days=(1 - now.weekday() + 7) % 7)  # Next Tuesday
+        while next_tuesday.year == now.year:
+            is_during_tournament = any(
+                start <= next_tuesday <= end for start, end in tournament_ranges
+            )
+            if not is_during_tournament:
+                self.scheduled_tasks.append({
+                    "task_type": "players",
+                    "scheduled_date": next_tuesday.strftime("%Y-%m-%d"),
+                    "tournament_id": None,
+                    "log": None
+                })
+            next_tuesday += timedelta(days=7)
 
         self._save_scheduled_tasks()
 
